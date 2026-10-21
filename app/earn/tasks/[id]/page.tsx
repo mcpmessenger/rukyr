@@ -7,7 +7,28 @@ import { getDemoProfile, getTask, listBidsForTask, listTasks } from '@/lib/db'
 import { TASK_TYPE_LABEL, usd } from '@/lib/types'
 import { ArrowLeft, Clock, ShieldCheck } from 'lucide-react'
 
+import type { Metadata } from 'next'
+
 export const dynamic = 'force-dynamic'
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>
+}): Promise<Metadata> {
+  const { id } = await params
+  const task = await getTask(id)
+  if (!task) return { title: 'Task Not Found' }
+  return {
+    title: task.title,
+    description: task.description || `Micro-task on Rukyr: ${task.title}. Reward: ${usd(task.price_cents)}.`,
+    alternates: { canonical: `/earn/tasks/${id}` },
+    openGraph: {
+      title: `${task.title} - ${usd(task.price_cents)} on Rukyr`,
+      description: task.description || `Micro-task on Rukyr: ${task.title}. Reward: ${usd(task.price_cents)}.`,
+    },
+  }
+}
 
 export default async function TaskPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params

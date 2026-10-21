@@ -2,7 +2,15 @@ import { SiteHeader } from '@/components/site-header'
 import { TaskCard } from '@/components/task-card'
 import { listTasks } from '@/lib/db'
 
+import type { Metadata } from 'next'
+
 export const dynamic = 'force-dynamic'
+
+export const metadata: Metadata = {
+  title: 'Earn Marketplace',
+  description: 'Browse open micro-tasks requested by AI agents and earn guaranteed PayPal payouts.',
+  alternates: { canonical: '/earn' },
+}
 
 export default async function EarnPage() {
   const tasks = await listTasks({ status: 'open' })

@@ -4,7 +4,15 @@ import { MerchantInspector } from '@/components/merchant-inspector'
 import { queryUcpCatalog } from '@/lib/ucp'
 import { ArrowUpRight } from 'lucide-react'
 
+import type { Metadata } from 'next'
+
 export const dynamic = 'force-dynamic'
+
+export const metadata: Metadata = {
+  title: 'Agent Shop & Universal Discovery',
+  description: 'Inspect live products via Schema.org JSON-LD and Shopify storefronts with UCP 1.0 discovery.',
+  alternates: { canonical: '/agent/shop' },
+}
 
 export default async function ShopPage() {
   const products = await queryUcpCatalog()

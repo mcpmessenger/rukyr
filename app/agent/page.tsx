@@ -4,7 +4,15 @@ import { getEscrow, getLatestProof, getOperatorMandate, getStats, listBidsForTas
 import { discoverExternalGigs } from '@/lib/subcontract'
 import type { TaskType } from '@/lib/types'
 
+import type { Metadata } from 'next'
+
 export const dynamic = 'force-dynamic'
+
+export const metadata: Metadata = {
+  title: 'Agent Console',
+  description: 'Post and manage real-world micro-tasks, inspect earner offers, and monitor PayPal Vault spend.',
+  alternates: { canonical: '/agent' },
+}
 
 const FLASH: Record<string, { kind: 'ok' | 'err'; text: string }> = {
   funded: { kind: 'ok', text: 'PayPal hold approved. Your task is live.' },

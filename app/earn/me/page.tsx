@@ -5,7 +5,15 @@ import { getDemoProfile, listTasks } from '@/lib/db'
 import { usd } from '@/lib/types'
 import { Star, ArrowRight } from 'lucide-react'
 
+import type { Metadata } from 'next'
+
 export const dynamic = 'force-dynamic'
+
+export const metadata: Metadata = {
+  title: 'My Earnings',
+  description: 'Track your completed task earnings, reputation score, and PayPal disbursements.',
+  alternates: { canonical: '/earn/me' },
+}
 
 export default async function EarningsPage() {
   const human = await getDemoProfile('human')
