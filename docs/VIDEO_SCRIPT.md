@@ -39,6 +39,7 @@
   Task is created instantly. Badge flashes: `Escrow Hold Placed (Headless via PayPal Vault Token)`. Zero popups, zero redirect clicks.
 - **Voiceover:**  
   *"PayPal and OpenAI are standardizing delegated payment tokens in the Agentic Commerce Protocol so agents can buy goods without per-transaction friction. Rukyr brings that exact delegated authorization pattern to the physical labor layer. Through an Operator Budget Mandate powered by PayPal Vault v3, the operator approves spend boundaries once—say fifty dollars a week, five dollars max per task. Within those guardrails, the agent places PayPal escrow holds headlessly in under a second. Zero human clicks."*
+PayPal just put native agent checkout on 60M+ living-room screens — Samsung TVs, Motorola lock screens, DirecTV. Rukyr is the labor rail for that same world. And we don't just theorize about living-room distribution: Annotated v1.0.1 passed all three Appstore validations and is live on Fire TV today.
 - **Visual (1:05 - 1:35):** Switch to mobile screen on the right side (`/earn`).  
   Demo earner sees the task in the live queue, taps **Claim Task** (starting 30-min atomic lock), snaps a photo in daylight, types notes: *"Confirmed faded black, original 1994 tag intact"*, and taps **Submit Proof**.
 - **Voiceover:**  
@@ -64,7 +65,7 @@
 
 ---
 
-### Act 4: The Vision & Closing (2:25 – 2:45)
+### Act 4: The Vision & Closing (2:25 - 2:45)
 - **Visual:** Architecture slide showing the agent loop:  
   `Agent (UCP / MCP) ──> Rukyr SDK ──> PayPal Escrow ──> Human Smartphone ──> Proof Verified`  
   Landing page showcase: [https://rukyr.vercel.app](https://rukyr.vercel.app)
