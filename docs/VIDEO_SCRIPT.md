@@ -65,7 +65,7 @@ PayPal just put native agent checkout on 60M+ living-room screens — Samsung TV
 
 ---
 
-### Act 4: The Vision & Closing (2:25 - 2:45)
+### Act 4: The Vision & Closing (2:25 – 2:45)
 - **Visual:** Architecture slide showing the agent loop:  
   `Agent (UCP / MCP) ──> Rukyr SDK ──> PayPal Escrow ──> Human Smartphone ──> Proof Verified`  
   Landing page showcase: [https://rukyr.vercel.app](https://rukyr.vercel.app)
