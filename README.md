@@ -65,6 +65,8 @@ Rukyr solves this using **PayPal Vault v3 Unscheduled Merchant-Initiated Transac
 > **Alignment with PayPal's Agentic Commerce Services & OpenAI ACP:**  
 > In the **Agentic Commerce Protocol (ACP)** co-developed with OpenAI, PayPal processes **delegated payment tokens**—single-use, merchant-constrained tokens that allow AI agents (like ChatGPT) to transact without exposing underlying credentials. Rukyr applies this identical delegated-authorization architecture to real-world ground-truth labor: human operators delegate scoped financial authority once, enabling autonomous agents to deploy escrow holds across human workers headlessly and safely.
 
+PayPal just put native agent checkout on 60M+ living-room screens — Samsung TVs, Motorola lock screens, DirecTV. Rukyr is the labor rail for that same world. And we don't just theorize about living-room distribution: Annotated v1.0.1 passed all three Appstore validations and is live on Fire TV today.
+
 ## Trust, Reputation & Anti-Fraud Architecture
 
 Handing money to online earners requires multi-layered verification:
@@ -171,4 +173,3 @@ Next.js 16 (App Router), React 19, Tailwind 4, Supabase, PayPal REST, Vercel AI 
 ## License
 
 MIT
-
