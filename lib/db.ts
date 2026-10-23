@@ -115,7 +115,8 @@ export async function getDemoProfile(kind: 'agent' | 'human'): Promise<Profile> 
       .from('profiles')
       .select('*')
       .eq('kind', kind)
-      .not('display_name', 'like', '__%')
+      .neq('display_name', '__operator_mandate__')
+      .neq('display_name', '__scheduled_tasks__')
       .order('created_at')
       .limit(1),
   ) as Profile[]
