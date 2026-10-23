@@ -95,7 +95,9 @@ export function AgentConsole({
   const [showForm, setShowForm] = useState(Boolean(prefill?.title))
   const [executeAtLocal, setExecuteAtLocal] = useState('')
   const [mandate, setMandate] = useState<OperatorMandate | undefined>(initialMandate)
-  const [selected, setSelected] = useState<string | null>(items[0]?.task.id ?? null)
+  const [selected, setSelected] = useState<string | null>(
+    () => items.find((i) => !['expired', 'cancelled'].includes(i.task.status))?.task.id ?? items[0]?.task.id ?? null,
+  )
   const [busy, setBusy] = useState<string | null>(null)
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(flash ?? null)
 
@@ -118,10 +120,11 @@ export function AgentConsole({
     return () => clearInterval(timer)
   }, [items, router])
 
+  const activeItems = items.filter((i) => !['expired', 'cancelled'].includes(i.task.status))
   const shown = items
     .filter((i) =>
       tab === 'all'
-        ? true
+        ? !['expired', 'cancelled'].includes(i.task.status)
         : tab === 'expired'
         ? ['expired', 'cancelled'].includes(i.task.status)
         : i.task.status === tab,
@@ -528,7 +531,7 @@ export function AgentConsole({
           <ListChecks className="size-4" />
           <span>Tasks & Verification</span>
           <span className="rounded-full bg-neutral-200/80 dark:bg-neutral-800 px-2 py-0.5 text-[10px] font-mono">
-            {items.length}
+            {activeItems.length}
           </span>
         </button>
 
@@ -581,7 +584,7 @@ export function AgentConsole({
             {TABS.map((t) => {
               const count = items.filter((i) =>
                 t === 'all'
-                  ? true
+                  ? !['expired', 'cancelled'].includes(i.task.status)
                   : t === 'expired'
                   ? ['expired', 'cancelled'].includes(i.task.status)
                   : i.task.status === t,
