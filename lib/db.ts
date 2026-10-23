@@ -115,7 +115,7 @@ export async function getDemoProfile(kind: 'agent' | 'human'): Promise<Profile> 
       .from('profiles')
       .select('*')
       .eq('kind', kind)
-      .neq('display_name', '__operator_mandate__')
+      .not('display_name', 'like', '__%')
       .order('created_at')
       .limit(1),
   ) as Profile[]
@@ -129,9 +129,142 @@ export async function getProfile(id: string): Promise<Profile | null> {
   return (must(r) as Profile | null) ?? null
 }
 
+// ---------- task schedule metadata (zero-migration Supabase persistence) ----------
+const SCHEDULE_PROFILE_ID = '00000000-0000-0000-0000-000000000002'
+
+interface TaskScheduleMeta {
+  status?: Task['status']
+  execute_at: string | null
+  deadline_minutes: number
+  status_reason?: string | null
+}
+
+async function getScheduleMap(): Promise<Record<string, TaskScheduleMeta>> {
+  if (!usingSupabase) return {}
+  try {
+    const r = await sb().from('profiles').select('paypal_email').eq('id', SCHEDULE_PROFILE_ID).maybeSingle()
+    if (!r.error && r.data?.paypal_email) {
+      return JSON.parse(r.data.paypal_email) as Record<string, TaskScheduleMeta>
+    }
+  } catch (err: any) {
+    console.warn('Supabase schedule map read warning:', err?.message || err)
+  }
+  return {}
+}
+
+async function saveScheduleMap(map: Record<string, TaskScheduleMeta>): Promise<void> {
+  if (!usingSupabase) return
+  try {
+    await sb().from('profiles').upsert(
+      {
+        id: SCHEDULE_PROFILE_ID,
+        kind: 'agent',
+        display_name: '__scheduled_tasks__',
+        paypal_email: JSON.stringify(map),
+        reputation: 5,
+      },
+      { onConflict: 'id' },
+    )
+  } catch (err: any) {
+    console.warn('Supabase schedule map write warning:', err?.message || err)
+  }
+}
+
+function hydrateTask(row: Task, map: Record<string, TaskScheduleMeta>): Task {
+  const m = map[row.id]
+  if (!m) {
+    return {
+      ...row,
+      execute_at: row.execute_at ?? null,
+      deadline_minutes: row.deadline_minutes ?? 240,
+      status_reason: row.status_reason ?? null,
+    }
+  }
+  const effectiveStatus =
+    row.status === 'pending_funding' && m.status === 'scheduled' ? 'scheduled' : m.status === 'expired' && row.status === 'expired' ? 'expired' : row.status
+  return {
+    ...row,
+    status: effectiveStatus,
+    execute_at: row.execute_at ?? m.execute_at ?? null,
+    deadline_minutes: row.deadline_minutes ?? m.deadline_minutes ?? 240,
+    status_reason: row.status_reason ?? m.status_reason ?? null,
+  }
+}
+
 // ---------- tasks ----------
-/** Return stale claims to the queue and expire tasks past their deadline. */
-export async function sweepTasks(): Promise<{ reopened: string[]; expired: string[] }> {
+/**
+ * Activate scheduled tasks whose execute_at timestamp has arrived.
+ * Starts the claim window (deadline_at = now + deadline_minutes) at activation time.
+ * If the operator mandate was revoked while scheduled, expires the task and voids the hold.
+ */
+export async function activateDueTasks(): Promise<{
+  activated: string[]
+  expired_scheduled: string[]
+}> {
+  const now = Date.now()
+  const all = await listTasks({ sweep: false })
+  const due = all.filter(
+    (t) => t.status === 'scheduled' && t.execute_at && Date.parse(t.execute_at) <= now,
+  )
+  if (!due.length) return { activated: [], expired_scheduled: [] }
+
+  const mandate = await getOperatorMandate()
+  const activated: string[] = []
+  const expired_scheduled: string[] = []
+
+  for (const t of due) {
+    // Check if task is still scheduled (idempotent guard)
+    const fresh = await getTask(t.id)
+    if (!fresh || fresh.status !== 'scheduled') continue
+
+    if (mandate.vault_status !== 'active') {
+      const esc = await getEscrow(t.id)
+      if (esc?.status === 'held' || esc?.status === 'pending') {
+        try {
+          if (esc.paypal_authorization_id) await voidAuthorization(esc.paypal_authorization_id)
+        } catch (e) {
+          console.error('[activate] void failed on revoked mandate', e)
+        }
+        await upsertEscrow({ task_id: t.id, amount_cents: esc.amount_cents, status: 'voided' })
+        if (esc.status === 'held') {
+          await refundMandateSpend(esc.amount_cents)
+        }
+      }
+      await updateTask(t.id, {
+        status: 'expired',
+        status_reason:
+          'Operator Budget Mandate was revoked before scheduled activation time. Escrow hold voided.',
+      })
+      expired_scheduled.push(t.id)
+      continue
+    }
+
+    const mins =
+      fresh.deadline_minutes ??
+      (fresh.deadline_at && fresh.execute_at
+        ? Math.max(10, Math.round((Date.parse(fresh.deadline_at) - Date.parse(fresh.execute_at)) / 60_000))
+        : 240)
+    const newDeadlineAt = new Date(now + mins * 60_000).toISOString()
+
+    await updateTask(t.id, {
+      status: 'open',
+      deadline_at: newDeadlineAt,
+      deadline_minutes: mins,
+    })
+    activated.push(t.id)
+  }
+
+  return { activated, expired_scheduled }
+}
+
+/** Activate due scheduled tasks, return stale claims to the queue, and expire tasks past their deadline. */
+export async function sweepTasks(): Promise<{
+  activated: string[]
+  expired_scheduled: string[]
+  reopened: string[]
+  expired: string[]
+}> {
+  const { activated, expired_scheduled } = await activateDueTasks()
   const now = Date.now()
   const all = await listTasks({ sweep: false })
   const reopened: string[] = []
@@ -157,7 +290,7 @@ export async function sweepTasks(): Promise<{ reopened: string[]; expired: strin
       expired.push(t.id)
     }
   }
-  return { reopened, expired }
+  return { activated, expired_scheduled, reopened, expired }
 }
 
 export async function listTasks(opts: { status?: string; sweep?: boolean } = {}): Promise<Task[]> {
@@ -166,7 +299,11 @@ export async function listTasks(opts: { status?: string; sweep?: boolean } = {})
   if (!usingSupabase) {
     rows = [...mem().tasks]
   } else {
-    rows = must(await sb().from('tasks').select('*').order('created_at', { ascending: false })) as Task[]
+    const [rawRows, scheduleMap] = await Promise.all([
+      sb().from('tasks').select('*').order('created_at', { ascending: false }),
+      getScheduleMap(),
+    ])
+    rows = (must(rawRows) as Task[]).map((r) => hydrateTask(r, scheduleMap))
   }
   if (opts.status) rows = rows.filter((t) => t.status === opts.status)
   return rows.sort((a, b) => b.created_at.localeCompare(a.created_at))
@@ -174,21 +311,59 @@ export async function listTasks(opts: { status?: string; sweep?: boolean } = {})
 
 export async function getTask(id: string): Promise<Task | null> {
   if (!usingSupabase) return mem().tasks.find((t) => t.id === id) ?? null
-  return (must(await sb().from('tasks').select('*').eq('id', id).maybeSingle()) as Task | null) ?? null
+  const [raw, scheduleMap] = await Promise.all([
+    sb().from('tasks').select('*').eq('id', id).maybeSingle(),
+    getScheduleMap(),
+  ])
+  const row = (must(raw) as Task | null) ?? null
+  return row ? hydrateTask(row, scheduleMap) : null
 }
 
 export async function createTask(
-  input: Pick<Task, 'agent_id' | 'title' | 'description' | 'task_type' | 'price_cents' | 'proof_requirements' | 'deadline_at' | 'status'>,
+  input: Pick<Task, 'agent_id' | 'title' | 'description' | 'task_type' | 'price_cents' | 'proof_requirements' | 'deadline_at' | 'status'> &
+    Partial<Pick<Task, 'execute_at' | 'deadline_minutes' | 'status_reason'>>,
 ): Promise<Task> {
   if (!usingSupabase) {
     const t: Task = {
-      ...input, id: randomUUID(), claimed_by: null, claimed_at: null,
+      ...input,
+      id: randomUUID(),
+      claimed_by: null,
+      claimed_at: null,
+      execute_at: input.execute_at ?? null,
+      deadline_minutes: input.deadline_minutes ?? 240,
+      status_reason: input.status_reason ?? null,
       created_at: new Date().toISOString(),
     }
     mem().tasks.push(t)
     return t
   }
-  return must(await sb().from('tasks').insert(input).select().single()) as Task
+
+  const baseInput = {
+    agent_id: input.agent_id,
+    title: input.title,
+    description: input.description,
+    task_type: input.task_type,
+    price_cents: input.price_cents,
+    status: input.status === 'scheduled' ? 'pending_funding' : input.status,
+    proof_requirements: input.proof_requirements,
+    deadline_at: input.deadline_at,
+  }
+
+  const created = must(await sb().from('tasks').insert(baseInput).select().single()) as Task
+
+  if (input.execute_at || input.status === 'scheduled' || input.deadline_minutes || input.status_reason) {
+    const map = await getScheduleMap()
+    map[created.id] = {
+      status: input.status,
+      execute_at: input.execute_at ?? null,
+      deadline_minutes: input.deadline_minutes ?? 240,
+      status_reason: input.status_reason ?? null,
+    }
+    await saveScheduleMap(map)
+    return hydrateTask(created, map)
+  }
+
+  return hydrateTask(created, {})
 }
 
 export async function updateTask(id: string, patch: Partial<Task>): Promise<Task> {
@@ -198,11 +373,52 @@ export async function updateTask(id: string, patch: Partial<Task>): Promise<Task
     Object.assign(t, patch)
     return t
   }
-  return must(await sb().from('tasks').update(patch).eq('id', id).select().single()) as Task
+
+  const map = await getScheduleMap()
+  const existingMeta = map[id]
+  const hasSchedulePatch =
+    patch.status === 'scheduled' ||
+    patch.execute_at !== undefined ||
+    patch.deadline_minutes !== undefined ||
+    patch.status_reason !== undefined ||
+    Boolean(existingMeta)
+
+  const dbPatch: Record<string, unknown> = {}
+  if (patch.title !== undefined) dbPatch.title = patch.title
+  if (patch.description !== undefined) dbPatch.description = patch.description
+  if (patch.task_type !== undefined) dbPatch.task_type = patch.task_type
+  if (patch.price_cents !== undefined) dbPatch.price_cents = patch.price_cents
+  if (patch.proof_requirements !== undefined) dbPatch.proof_requirements = patch.proof_requirements
+  if (patch.claimed_by !== undefined) dbPatch.claimed_by = patch.claimed_by
+  if (patch.claimed_at !== undefined) dbPatch.claimed_at = patch.claimed_at
+  if (patch.deadline_at !== undefined) dbPatch.deadline_at = patch.deadline_at
+  if (patch.status !== undefined) {
+    dbPatch.status = patch.status === 'scheduled' ? 'pending_funding' : patch.status
+  }
+
+  const updated =
+    Object.keys(dbPatch).length > 0
+      ? (must(await sb().from('tasks').update(dbPatch).eq('id', id).select().single()) as Task)
+      : (must(await sb().from('tasks').select('*').eq('id', id).single()) as Task)
+
+  if (hasSchedulePatch) {
+    map[id] = {
+      status: patch.status ?? existingMeta?.status ?? updated.status,
+      execute_at: patch.execute_at !== undefined ? patch.execute_at : (existingMeta?.execute_at ?? null),
+      deadline_minutes: patch.deadline_minutes ?? existingMeta?.deadline_minutes ?? 240,
+      status_reason:
+        patch.status_reason !== undefined ? patch.status_reason : (existingMeta?.status_reason ?? null),
+    }
+    await saveScheduleMap(map)
+  }
+
+  return hydrateTask(updated, map)
 }
 
-/** Atomic claim: only succeeds if the task is currently open. */
+/** Atomic claim: only succeeds if the task is currently open (never claims scheduled tasks). */
 export async function claimTask(id: string, humanId: string): Promise<Task | null> {
+  const existing = await getTask(id)
+  if (!existing || existing.status !== 'open') return null
   const patch = { status: 'claimed' as const, claimed_by: humanId, claimed_at: new Date().toISOString() }
   if (!usingSupabase) {
     const t = mem().tasks.find((x) => x.id === id)
@@ -212,7 +428,13 @@ export async function claimTask(id: string, humanId: string): Promise<Task | nul
   }
   const r = await sb().from('tasks').update(patch).eq('id', id).eq('status', 'open').select()
   const rows = must(r) as Task[]
-  return rows[0] ?? null
+  if (!rows[0]) return null
+  const map = await getScheduleMap()
+  if (map[id]) {
+    map[id].status = 'claimed'
+    await saveScheduleMap(map)
+  }
+  return hydrateTask(rows[0], map)
 }
 
 // ---------- proofs ----------
@@ -578,10 +800,18 @@ export async function recordMandateSpend(cents: number): Promise<void> {
   })
 }
 
+export async function refundMandateSpend(cents: number): Promise<void> {
+  const current = await getOperatorMandate()
+  await updateOperatorMandate({
+    spent_this_week_cents: Math.max(0, current.spent_this_week_cents - cents),
+  })
+}
+
 export async function revokeOperatorMandate(): Promise<OperatorMandate> {
   return updateOperatorMandate({
     vault_status: 'revoked',
     vault_id: null,
   })
 }
+
 

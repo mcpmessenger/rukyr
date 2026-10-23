@@ -65,7 +65,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             deadline_minutes: {
               type: 'number',
-              description: 'Minutes before the task expires (default: 240).',
+              description: 'Minutes before the task expires once open (default: 240).',
+            },
+            execute_at: {
+              type: 'string',
+              description:
+                'Optional future ISO 8601 timestamp when the task should become open and claimable (e.g. when a store opens). Escrow hold is reserved immediately; claim window starts at execute_at.',
             },
           },
           required: ['title', 'price_dollars'],
@@ -269,6 +274,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         priceCents,
         proofRequirements: (args?.proof_requirements as 'photo' | 'text' | 'code') || 'photo',
         deadlineMinutes: args?.deadline_minutes ? Number(args.deadline_minutes) : 240,
+        executeAt: args?.execute_at ? String(args.execute_at) : null,
       })
 
       return {
@@ -280,6 +286,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 success: true,
                 task_id: res.task.id,
                 status: res.task.status,
+                execute_at: res.task.execute_at ?? null,
                 price: `$${(res.task.price_cents / 100).toFixed(2)}`,
                 proof_required: res.task.proof_requirements,
                 headless: res.headless ?? false,
@@ -288,6 +295,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 message:
                   res.approveUrl
                     ? `Task requires operator approval at PayPal URL (${res.requiresConsentReason || 'Outside mandate limits'})`
+                    : res.task.status === 'scheduled'
+                    ? `Task scheduled for ${res.task.execute_at} and funded headlessly in PayPal escrow via Operator Budget Mandate (0 human clicks).`
                     : 'Task posted and funded headlessly in PayPal escrow via Operator Budget Mandate (0 human clicks).',
               },
               null,

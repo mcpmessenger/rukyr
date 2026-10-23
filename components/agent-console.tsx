@@ -3,7 +3,7 @@
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
-import { StatusBadge, timeLeft } from './task-card'
+import { StatusBadge, formatScheduledTime, timeLeft } from './task-card'
 import {
   TASK_TYPE_LABEL,
   usd,
@@ -15,7 +15,7 @@ import {
   type OperatorMandate,
 } from '@/lib/types'
 import type { ExternalGig } from '@/lib/subcontract'
-import { Plus, ShieldCheck, Briefcase, ListChecks, CheckCircle2, AlertCircle } from 'lucide-react'
+import { Plus, ShieldCheck, Briefcase, ListChecks, CheckCircle2, AlertCircle, CalendarClock } from 'lucide-react'
 
 export interface ConsoleItem {
   task: Task
@@ -36,8 +36,43 @@ export interface Prefill {
   proof_requirements?: string
 }
 
-const TABS = ['all', 'open', 'claimed', 'submitted', 'paid', 'expired'] as const
+const TABS = ['all', 'open', 'scheduled', 'claimed', 'submitted', 'paid', 'expired'] as const
 const FEE_PCT = 15
+
+function toDatetimeLocalValue(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+function getSchedulePreset(kind: 'tomorrow_7am' | 'tomorrow_8am' | 'monday_8am'): string {
+  const d = new Date()
+  d.setSeconds(0, 0)
+  if (kind === 'tomorrow_7am') {
+    d.setDate(d.getDate() + 1)
+    d.setHours(7, 0, 0, 0)
+  } else if (kind === 'tomorrow_8am') {
+    d.setDate(d.getDate() + 1)
+    d.setHours(8, 0, 0, 0)
+  } else if (kind === 'monday_8am') {
+    const day = d.getDay()
+    const daysUntilMonday = ((8 - day) % 7) || 7
+    d.setDate(d.getDate() + daysUntilMonday)
+    d.setHours(8, 0, 0, 0)
+  }
+  return toDatetimeLocalValue(d)
+}
+
+const STATUS_SORT_ORDER: Record<string, number> = {
+  open: 0,
+  scheduled: 1,
+  claimed: 2,
+  submitted: 3,
+  pending_funding: 4,
+  verified: 5,
+  paid: 6,
+  expired: 7,
+  cancelled: 8,
+}
 
 export function AgentConsole({
   items,
@@ -58,6 +93,7 @@ export function AgentConsole({
   const [activeView, setActiveView] = useState<'tasks' | 'mandate' | 'gigs'>('tasks')
   const [tab, setTab] = useState<(typeof TABS)[number]>('all')
   const [showForm, setShowForm] = useState(Boolean(prefill?.title))
+  const [executeAtLocal, setExecuteAtLocal] = useState('')
   const [mandate, setMandate] = useState<OperatorMandate | undefined>(initialMandate)
   const [selected, setSelected] = useState<string | null>(items[0]?.task.id ?? null)
   const [busy, setBusy] = useState<string | null>(null)
@@ -67,9 +103,40 @@ export function AgentConsole({
     if (initialMandate) setMandate(initialMandate)
   }, [initialMandate])
 
-  const shown = items.filter((i) =>
-    tab === 'all' ? true : tab === 'expired' ? ['expired', 'cancelled'].includes(i.task.status) : i.task.status === tab,
-  )
+  // Automatically trigger activation when a scheduled task's execute_at arrives
+  useEffect(() => {
+    const scheduled = items.filter((i) => i.task.status === 'scheduled' && i.task.execute_at)
+    if (!scheduled.length) return
+    const timer = setInterval(async () => {
+      const now = Date.now()
+      const hasDue = scheduled.some((i) => i.task.execute_at && Date.parse(i.task.execute_at) <= now)
+      if (hasDue) {
+        await fetch('/api/tasks/activate').catch(() => null)
+        router.refresh()
+      }
+    }, 10_000)
+    return () => clearInterval(timer)
+  }, [items, router])
+
+  const shown = items
+    .filter((i) =>
+      tab === 'all'
+        ? true
+        : tab === 'expired'
+        ? ['expired', 'cancelled'].includes(i.task.status)
+        : i.task.status === tab,
+    )
+    .sort((a, b) => {
+      if (tab === 'all') {
+        const wa = STATUS_SORT_ORDER[a.task.status] ?? 9
+        const wb = STATUS_SORT_ORDER[b.task.status] ?? 9
+        if (wa !== wb) return wa - wb
+      }
+      if (a.task.status === 'scheduled' && b.task.status === 'scheduled') {
+        return (a.task.execute_at ?? '').localeCompare(b.task.execute_at ?? '')
+      }
+      return b.task.created_at.localeCompare(a.task.created_at)
+    })
   const sel = items.find((i) => i.task.id === selected) ?? null
 
   async function act(id: string, action: 'approve' | 'reject' | 'cancel') {
@@ -88,7 +155,7 @@ export function AgentConsole({
             text: {
               approve: 'Approved. Payment captured and earner paid.',
               reject: 'Rejected. Task reopened.',
-              cancel: 'Cancelled. Hold released.',
+              cancel: 'Cancelled. PayPal escrow hold voided and weekly mandate pool refunded.',
             }[action],
           }
         : { kind: 'err', text: data.error },
@@ -165,6 +232,16 @@ export function AgentConsole({
   async function post(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     const f = new FormData(e.currentTarget)
+    const rawExec = String(f.get('execute_at') || '').trim()
+    let executeAtIso: string | null = null
+    if (rawExec) {
+      const parsed = new Date(rawExec)
+      if (Number.isNaN(parsed.getTime())) {
+        setMsg({ kind: 'err', text: 'Invalid schedule date/time' })
+        return
+      }
+      executeAtIso = parsed.toISOString()
+    }
     setBusy('post')
     const res = await fetch('/api/tasks', {
       method: 'POST',
@@ -176,6 +253,7 @@ export function AgentConsole({
         price_cents: Math.round(Number(f.get('price')) * 100),
         proof_requirements: f.get('proof'),
         deadline_minutes: Number(f.get('deadline')),
+        execute_at: executeAtIso,
       }),
     })
     const data = await res.json()
@@ -186,13 +264,18 @@ export function AgentConsole({
       return
     }
     setShowForm(false)
+    setExecuteAtLocal('')
     setActiveView('tasks')
+    const isScheduled = data.task?.status === 'scheduled' && data.task?.execute_at
     setMsg({
       kind: 'ok',
-      text: data.headless
+      text: isScheduled
+        ? `Task scheduled for ${formatScheduledTime(data.task.execute_at)}! Escrow hold reserved via PayPal Vault (0 clicks); claim window starts at activation.`
+        : data.headless
         ? 'Task posted autonomously! Escrow hold authorized via PayPal Vault token (0 human clicks).'
         : 'Task posted and funds held in escrow.',
     })
+    if (data.task?.id) setSelected(data.task.id)
     router.refresh()
   }
 
@@ -363,15 +446,68 @@ export function AgentConsole({
               </select>
             </label>
 
+            <div className="md:col-span-2">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-600 dark:text-neutral-300">
+                Execute at (Optional — Schedule for Business Hours)
+                <input
+                  name="execute_at"
+                  type="datetime-local"
+                  value={executeAtLocal}
+                  onChange={(e) => setExecuteAtLocal(e.target.value)}
+                  placeholder="Now"
+                  className={inputStyle + ' mt-1.5 font-mono'}
+                />
+              </label>
+              <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
+                <span className="text-neutral-500 mr-1">Quick set:</span>
+                <button
+                  type="button"
+                  onClick={() => setExecuteAtLocal('')}
+                  className={`rounded-full px-2.5 py-0.5 font-mono transition-colors ${
+                    !executeAtLocal
+                      ? 'bg-neutral-900 text-white dark:bg-[#f4a261] dark:text-[#171412] font-semibold'
+                      : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700'
+                  }`}
+                >
+                  Now (Immediate)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setExecuteAtLocal(getSchedulePreset('tomorrow_7am'))}
+                  className="rounded-full bg-neutral-100 dark:bg-neutral-800 px-2.5 py-0.5 font-mono text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors"
+                >
+                  Tomorrow 7:00 AM
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setExecuteAtLocal(getSchedulePreset('tomorrow_8am'))}
+                  className="rounded-full bg-neutral-100 dark:bg-neutral-800 px-2.5 py-0.5 font-mono text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors"
+                >
+                  Tomorrow 8:00 AM
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setExecuteAtLocal(getSchedulePreset('monday_8am'))}
+                  className="rounded-full bg-neutral-100 dark:bg-neutral-800 px-2.5 py-0.5 font-mono text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors"
+                >
+                  Monday 8:00 AM
+                </button>
+              </div>
+            </div>
+
             <div className="md:col-span-2 mt-2 flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-neutral-200 dark:border-neutral-800 pt-4">
               <p className="text-xs text-neutral-500">
-                A {FEE_PCT}% platform fee is held in PayPal escrow. Under the Mandate cap ($5.00), this executes headlessly with 0 clicks.
+                A {FEE_PCT}% platform fee is held in PayPal escrow at post time. Scheduled tasks open at the chosen time and start their claim window on activation.
               </p>
               <button
                 disabled={busy === 'post'}
                 className="w-full sm:w-auto rounded-full bg-neutral-900 dark:bg-[#f4a261] px-6 py-2.5 text-xs sm:text-sm font-semibold text-white dark:text-[#171412] disabled:opacity-50 transition-opacity hover:opacity-90 shadow-xs"
               >
-                {busy === 'post' ? 'Authorizing Hold…' : 'Post & Authorize Escrow'}
+                {busy === 'post'
+                  ? 'Authorizing Hold…'
+                  : executeAtLocal
+                  ? 'Schedule & Reserve Escrow'
+                  : 'Post & Authorize Escrow'}
               </button>
             </div>
           </div>
@@ -501,14 +637,18 @@ export function AgentConsole({
                         </span>
                       </div>
                       <div className="mt-3 flex items-center justify-between text-xs text-neutral-500 dark:text-neutral-400">
-                        <span className="font-mono">{timeLeft(task.deadline_at)}</span>
+                        <span className="font-mono">
+                          {task.status === 'scheduled'
+                            ? `${Math.round((task.deadline_minutes ?? 240) / 60)}h claim window on open`
+                            : timeLeft(task.deadline_at)}
+                        </span>
                         <div className="flex items-center gap-2">
                           {pendingBids.length > 0 && task.status === 'open' && (
                             <span className="rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-[#f4a261] px-2 py-0.5 text-[10px] font-medium">
                               {pendingBids.length} offer{pendingBids.length > 1 ? 's' : ''}
                             </span>
                           )}
-                          <StatusBadge status={task.status} />
+                          <StatusBadge status={task.status} executeAt={task.execute_at} />
                         </div>
                       </div>
                     </button>
@@ -611,7 +751,10 @@ export function AgentConsole({
           </div>
 
           <div className="mt-6 grid gap-6 sm:grid-cols-3">
-            <div className="rounded-xl border border-neutral-200/80 dark:border-neutral-800 bg-neutral-50 dark:bg-[#161514] p-4">
+            <div
+              title="Spend counts against the weekly pool of the week a task is posted in (when escrow is reserved). Cancelling a task voids the hold and refunds the pool."
+              className="rounded-xl border border-neutral-200/80 dark:border-neutral-800 bg-neutral-50 dark:bg-[#161514] p-4"
+            >
               <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">
                 Weekly Spend Pool
               </p>
@@ -627,6 +770,9 @@ export function AgentConsole({
                   }}
                 />
               </div>
+              <p className="mt-2 text-[11px] text-neutral-500 leading-normal">
+                Charged when posted (including scheduled tasks); refunded if cancelled.
+              </p>
             </div>
 
             <div className="rounded-xl border border-neutral-200/80 dark:border-neutral-800 bg-neutral-50 dark:bg-[#161514] p-4">
@@ -754,9 +900,9 @@ function TaskDetail({
   onAcceptBid: (bidId: string) => void
 }) {
   const { task, escrow, proof, bids = [] } = item
-  const order = ['pending_funding', 'open', 'claimed', 'submitted', 'paid']
+  const order = ['pending_funding', 'scheduled', 'open', 'claimed', 'submitted', 'paid']
   const reached = order.indexOf(task.status)
-  const steps = [['Escrowed', 1], ['Claimed', 2], ['Proof submitted', 3], ['Paid', 4]] as const
+  const steps = [['Escrowed', 1], ['Open', 2], ['Claimed', 3], ['Proof submitted', 4], ['Paid', 5]] as const
   const v = proof?.ai_verdict
 
   return (
@@ -765,13 +911,35 @@ function TaskDetail({
         <h2 className="text-base sm:text-lg font-bold text-neutral-900 dark:text-neutral-100">
           {task.title}
         </h2>
-        <StatusBadge status={task.status} />
+        <StatusBadge status={task.status} executeAt={task.execute_at} />
       </div>
 
       {task.description && (
         <p className="mt-2 text-xs sm:text-sm leading-relaxed text-neutral-600 dark:text-neutral-400">
           {task.description}
         </p>
+      )}
+
+      {task.status === 'scheduled' && task.execute_at && (
+        <div className="mt-3 flex items-start gap-2.5 rounded-xl border border-purple-200 dark:border-purple-900/60 bg-purple-50/70 dark:bg-[#272033]/70 p-3 text-xs text-purple-900 dark:text-[#c8a8f0]">
+          <CalendarClock className="size-4 shrink-0 mt-0.5" />
+          <div>
+            <p className="font-semibold">
+              Scheduled to go live {formatScheduledTime(task.execute_at)}
+            </p>
+            <p className="mt-0.5 text-[11px] opacity-85">
+              PayPal escrow is already held. Hidden from /earn until activation, when the full{' '}
+              {Math.round((task.deadline_minutes ?? 240) / 60)}-hour claim window begins.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {task.status_reason && (
+        <div className="mt-3 flex items-start gap-2 rounded-xl border border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-[#331d1d] p-3 text-xs text-red-900 dark:text-[#f08f8f]">
+          <AlertCircle className="size-4 shrink-0 mt-0.5" />
+          <span>{task.status_reason}</span>
+        </div>
       )}
 
       {/* Progress Timeline */}
@@ -903,15 +1071,16 @@ function TaskDetail({
         </div>
       )}
 
-      {['open', 'claimed', 'submitted'].includes(task.status) && (
+      {['scheduled', 'open', 'claimed', 'submitted'].includes(task.status) && (
         <button
           disabled={!!busy}
           onClick={() => onAct(task.id, 'cancel')}
           className="mt-4 text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 underline disabled:opacity-50"
         >
-          Cancel task & release escrow hold
+          Cancel task, release escrow hold & refund weekly pool
         </button>
       )}
     </div>
   )
 }
+

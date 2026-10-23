@@ -12,6 +12,7 @@ export interface CreateTaskParams {
   priceCents: number
   proofRequirements?: 'photo' | 'text' | 'code'
   deadlineMinutes?: number
+  executeAt?: string | null
 }
 
 export interface WaitOptions {
@@ -52,6 +53,7 @@ export class RukyrClient {
         price_cents: params.priceCents,
         proof_requirements: params.proofRequirements ?? 'photo',
         deadline_minutes: params.deadlineMinutes ?? 240,
+        ...(params.executeAt ? { execute_at: params.executeAt } : {}),
       }),
     })
 

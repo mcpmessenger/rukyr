@@ -21,6 +21,7 @@ const body = z.object({
   price_cents: z.number().int().min(50).max(1000),
   proof_requirements: z.enum(['photo', 'text', 'code']).default('photo'),
   deadline_minutes: z.number().int().min(10).max(60 * 24 * 7).default(240),
+  execute_at: z.string().nullable().optional(),
 })
 
 export async function GET(req: NextRequest) {
@@ -34,6 +35,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid task', issues: parsed.error.issues }, { status: 400 })
   }
   const input = parsed.data
+
+  let executeAtIso: string | null = null
+  let isScheduled = false
+  if (input.execute_at && input.execute_at.trim() !== '') {
+    const execMs = Date.parse(input.execute_at)
+    if (Number.isNaN(execMs)) {
+      return NextResponse.json({ error: 'Invalid execute_at timestamp' }, { status: 400 })
+    }
+    if (execMs < Date.now() - 60_000) {
+      return NextResponse.json({ error: 'execute_at cannot be in the past' }, { status: 400 })
+    }
+    if (execMs > Date.now()) {
+      isScheduled = true
+      executeAtIso = new Date(execMs).toISOString()
+    }
+  }
+
   const agent = await getDemoProfile('agent')
   const fee = feeFor(input.price_cents)
   const total = input.price_cents + fee
@@ -45,6 +63,7 @@ export async function POST(req: NextRequest) {
     input.price_cents <= mandate.per_task_cap_cents &&
     mandate.spent_this_week_cents + total <= mandate.weekly_cap_cents
 
+  const baseStartMs = isScheduled && executeAtIso ? Date.parse(executeAtIso) : Date.now()
   const task = await createTask({
     agent_id: agent.id,
     title: input.title,
@@ -52,7 +71,9 @@ export async function POST(req: NextRequest) {
     task_type: input.task_type,
     price_cents: input.price_cents,
     proof_requirements: input.proof_requirements,
-    deadline_at: new Date(Date.now() + input.deadline_minutes * 60_000).toISOString(),
+    deadline_at: new Date(baseStartMs + input.deadline_minutes * 60_000).toISOString(),
+    execute_at: executeAtIso,
+    deadline_minutes: input.deadline_minutes,
     status: 'pending_funding',
   })
 
@@ -98,18 +119,25 @@ export async function POST(req: NextRequest) {
       paypal_authorization_id: authId,
       status: 'held',
     })
-    const open = await updateTask(task.id, { status: 'open' })
+    const targetStatus = isScheduled ? 'scheduled' : 'open'
+    const updated = await updateTask(task.id, {
+      status: targetStatus,
+      execute_at: executeAtIso,
+      deadline_minutes: input.deadline_minutes,
+    })
     if (canUseVault) {
       await recordMandateSpend(total)
     }
     await notify(
       agent.paypal_email,
-      'Task posted',
-      `"${task.title}" is live. ${total / 100} USD held in escrow via PayPal Vault.`,
+      isScheduled ? 'Task scheduled' : 'Task posted',
+      isScheduled
+        ? `"${task.title}" is scheduled for ${executeAtIso}. ${total / 100} USD held in escrow via PayPal Vault.`
+        : `"${task.title}" is live. ${total / 100} USD held in escrow via PayPal Vault.`,
     )
     return NextResponse.json(
       {
-        task: open,
+        task: updated,
         approveUrl: null,
         headless: true,
         mandate: {

@@ -12,8 +12,21 @@ export function timeLeft(deadline: string | null): string {
   return h < 48 ? `${h}h left` : `${Math.floor(h / 24)}d left`
 }
 
+export function formatScheduledTime(iso: string | null | undefined): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
 const STATUS_STYLE: Record<string, string> = {
   pending_funding: 'bg-amber-100/80 text-amber-900 dark:bg-[#2c2a20] dark:text-[#e6d37a]',
+  scheduled: 'bg-purple-100/80 text-purple-900 dark:bg-[#272033] dark:text-[#c8a8f0]',
   open: 'bg-emerald-100/80 text-emerald-800 dark:bg-[#1d2b22] dark:text-[#8bd3a8]',
   claimed: 'bg-blue-100/80 text-blue-800 dark:bg-[#1f2736] dark:text-[#8fb4f0]',
   submitted: 'bg-orange-100/80 text-orange-900 dark:bg-[#33281c] dark:text-[#f4a261]',
@@ -23,14 +36,18 @@ const STATUS_STYLE: Record<string, string> = {
   expired: 'bg-neutral-200/70 text-neutral-600 dark:bg-[#2a2a2a] dark:text-[#888]',
 }
 
-export function StatusBadge({ status }: { status: string }) {
+export function StatusBadge({ status, executeAt }: { status: string; executeAt?: string | null }) {
+  const label =
+    status === 'scheduled' && executeAt
+      ? `Scheduled — opens ${formatScheduledTime(executeAt)}`
+      : status.replace('_', ' ')
   return (
     <span
       className={`rounded-full px-2.5 py-0.5 font-mono text-[10px] font-medium uppercase tracking-wider ${
         STATUS_STYLE[status] ?? 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400'
       }`}
     >
-      {status.replace('_', ' ')}
+      {label}
     </span>
   )
 }

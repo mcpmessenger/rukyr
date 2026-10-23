@@ -14,7 +14,8 @@ export async function GET(req: NextRequest) {
     if (task.status === 'pending_funding') {
       const authId = await authorizeOrder(escrow.paypal_order_id)
       await upsertEscrow({ task_id: task.id, amount_cents: escrow.amount_cents, paypal_authorization_id: authId, status: 'held' })
-      await updateTask(task.id, { status: 'open' })
+      const isScheduled = Boolean(task.execute_at && Date.parse(task.execute_at) > Date.now())
+      await updateTask(task.id, { status: isScheduled ? 'scheduled' : 'open' })
     }
     return NextResponse.redirect(new URL('/agent?funded=1', req.url))
   } catch (e) {

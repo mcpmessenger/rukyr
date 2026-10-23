@@ -20,14 +20,18 @@ create table tasks (
     check (task_type in ('verification','bot_gate','phone_call','taste_call','local_presence','spend_approval')),
   price_cents integer not null check (price_cents > 0),
   status text not null default 'pending_funding'
-    check (status in ('pending_funding','open','claimed','submitted','verified','paid','cancelled','expired')),
+    check (status in ('pending_funding','scheduled','open','claimed','submitted','verified','paid','cancelled','expired')),
   proof_requirements text not null default 'photo',
   claimed_by uuid references profiles(id),
   claimed_at timestamptz,
   deadline_at timestamptz,
+  execute_at timestamptz,
+  deadline_minutes integer not null default 240,
+  status_reason text,
   created_at timestamptz not null default now()
 );
 create index tasks_status_idx on tasks(status);
+create index tasks_scheduled_idx on tasks(status, execute_at) where status = 'scheduled';
 
 create table proofs (
   id uuid primary key default gen_random_uuid(),

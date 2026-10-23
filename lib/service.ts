@@ -1,6 +1,7 @@
 import {
   getEscrow,
   getProfile,
+  refundMandateSpend,
   updateTask,
   upsertEscrow,
 } from './db'
@@ -48,15 +49,19 @@ export async function rejectTask(task: Task) {
   return { task: updated }
 }
 
-/** Cancel the task and release the PayPal hold. */
+/** Cancel the task, release the PayPal hold, and refund the mandate spend pool. */
 export async function cancelTask(task: Task) {
   if (['paid', 'cancelled', 'expired'].includes(task.status)) throw new Error(`Task is already ${task.status}`)
   const escrow = await getEscrow(task.id)
-  if (escrow?.paypal_authorization_id && escrow.status === 'held') {
+  const wasHeld = escrow?.status === 'held'
+  if (escrow?.paypal_authorization_id && wasHeld) {
     await voidAuthorization(escrow.paypal_authorization_id)
   }
   if (escrow) {
     await upsertEscrow({ task_id: task.id, amount_cents: escrow.amount_cents, status: 'voided' })
+    if (wasHeld) {
+      await refundMandateSpend(escrow.amount_cents)
+    }
   }
   return { task: await updateTask(task.id, { status: 'cancelled' }) }
 }

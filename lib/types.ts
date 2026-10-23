@@ -8,6 +8,7 @@ export type TaskType =
 
 export type TaskStatus =
   | 'pending_funding'
+  | 'scheduled'
   | 'open'
   | 'claimed'
   | 'submitted'
@@ -39,6 +40,9 @@ export interface Task {
   claimed_by: string | null
   claimed_at: string | null
   deadline_at: string | null
+  execute_at?: string | null
+  deadline_minutes?: number
+  status_reason?: string | null
   created_at: string
 }
 
