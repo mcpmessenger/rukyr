@@ -76,7 +76,27 @@ create table bids (
 create index bids_task_idx on bids(task_id);
 alter table bids enable row level security;
 
--- Proof images: create a public-read Storage bucket named "proofs" (dashboard â†’ Storage),
+create table operator_mandate (
+  id integer primary key default 1 check (id = 1),
+  vault_id text,
+  vault_status text not null default 'unauthorized'
+    check (vault_status in ('active','pending_approval','unauthorized','revoked')),
+  weekly_cap_cents integer not null default 5000,
+  spent_this_week_cents integer not null default 0,
+  per_task_cap_cents integer not null default 500,
+  operator_email text not null default 'operator@rukyr.ai',
+  last_authorized_at timestamptz
+);
+
+insert into operator_mandate (
+  id, vault_id, vault_status, weekly_cap_cents, spent_this_week_cents, per_task_cap_cents, operator_email, last_authorized_at
+) values (
+  1, null, 'unauthorized', 5000, 0, 500, 'operator@rukyr.ai', null
+) on conflict (id) do nothing;
+
+alter table operator_mandate enable row level security;
+
+-- Proof images: create a public-read Storage bucket named "proofs" (dashboard → Storage),
 -- or uncomment:
 -- insert into storage.buckets (id, name, public) values ('proofs', 'proofs', true);
 

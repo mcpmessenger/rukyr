@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
     req.nextUrl.searchParams.get('token')
 
   const mandate = await getOperatorMandate()
-  const setupToken = approvalSessionId || mandate.vault_id
+  const setupToken = mandate.vault_id || approvalSessionId
 
   if (!setupToken) {
     return NextResponse.redirect(`${origin}/agent?vault=error`)

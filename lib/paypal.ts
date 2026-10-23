@@ -164,51 +164,46 @@ export async function createVaultSetupSession(opts: {
     }
   }
 
-  try {
-    const res = await pp<{ id: string; links: { rel: string; href: string }[] }>('/v3/vault/setup-tokens', {
-      json: {
-        payment_source: {
-          paypal: {
-            usage_type: 'MERCHANT',
-            customer_type: 'CONSUMER',
-            experience_context: {
-              brand_name: 'Rukyr Agentic Commerce',
-              return_url: opts.returnUrl,
-              cancel_url: opts.cancelUrl,
-            },
+  const res = await pp<{ id: string; links: { rel: string; href: string }[] }>('/v3/vault/setup-tokens', {
+    json: {
+      payment_source: {
+        paypal: {
+          usage_type: 'MERCHANT',
+          customer_type: 'CONSUMER',
+          experience_context: {
+            brand_name: 'Rukyr Agentic Commerce',
+            return_url: opts.returnUrl,
+            cancel_url: opts.cancelUrl,
           },
         },
       },
-    })
-    const link = res.links?.find((l) => l.rel === 'approve')
-    return { setupToken: res.id, approveUrl: link?.href ?? null }
-  } catch (err: any) {
-    console.warn('Vault setup token API fallback:', err?.message)
-    const fallbackToken = 'VAULT_TOKEN_MANDATE_' + Date.now().toString(36)
-    return { setupToken: fallbackToken, approveUrl: null }
+    },
+  })
+  const link = res.links?.find((l) => l.rel === 'approve')
+  if (!res.id || !link?.href) {
+    throw new Error('PayPal Vault setup-tokens response missing id or approve link')
   }
+  return { setupToken: res.id, approveUrl: link.href }
 }
 
 /** Step 1c: after operator approves setup token, exchange it for a permanent vaulted payment token. */
 export async function createPaymentTokenFromSetupToken(setupTokenId: string): Promise<string> {
   if (!paypalLive) return 'vault_token_mock_' + setupTokenId.slice(0, 8)
 
-  try {
-    const res = await pp<{ id: string; status?: string }>('/v3/vault/payment-tokens', {
-      json: {
-        payment_source: {
-          token: {
-            id: setupTokenId,
-            type: 'SETUP_TOKEN',
-          },
+  const res = await pp<{ id: string; status?: string }>('/v3/vault/payment-tokens', {
+    json: {
+      payment_source: {
+        token: {
+          id: setupTokenId,
+          type: 'SETUP_TOKEN',
         },
       },
-    })
-    return res.id || setupTokenId
-  } catch (err: any) {
-    console.warn('Payment token exchange notice, using setup token id:', err?.message)
-    return setupTokenId
+    },
+  })
+  if (!res.id) {
+    throw new Error('PayPal Vault payment-tokens exchange returned no token id')
   }
+  return res.id
 }
 
 /** Step 2: after the operator approves, place the authorization (funds held). */

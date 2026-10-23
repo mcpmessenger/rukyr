@@ -2,7 +2,7 @@
 
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { StatusBadge, timeLeft } from './task-card'
 import {
   TASK_TYPE_LABEL,
@@ -62,6 +62,10 @@ export function AgentConsole({
   const [selected, setSelected] = useState<string | null>(items[0]?.task.id ?? null)
   const [busy, setBusy] = useState<string | null>(null)
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(flash ?? null)
+
+  useEffect(() => {
+    if (initialMandate) setMandate(initialMandate)
+  }, [initialMandate])
 
   const shown = items.filter((i) =>
     tab === 'all' ? true : tab === 'expired' ? ['expired', 'cancelled'].includes(i.task.status) : i.task.status === tab,

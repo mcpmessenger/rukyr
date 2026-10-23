@@ -20,6 +20,8 @@ const FLASH: Record<string, { kind: 'ok' | 'err'; text: string }> = {
   authorize_failed: { kind: 'err', text: 'PayPal could not authorize the hold. Try again.' },
   unknown_task: { kind: 'err', text: 'Unknown task.' },
   vault_authorized: { kind: 'ok', text: 'Operator mandate authorized via PayPal Vault. Headless escrow active.' },
+  vault_cancelled: { kind: 'err', text: 'PayPal Vault mandate approval was cancelled.' },
+  vault_error: { kind: 'err', text: 'PayPal Vault mandate could not be verified. Please authorize again.' },
 }
 
 export default async function AgentPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
@@ -50,7 +52,13 @@ export default async function AgentPage({ searchParams }: { searchParams: Promis
   const flash = sp.funded
     ? FLASH.funded
     : sp.vault === 'authorized'
-    ? FLASH.vault_authorized
+    ? mandate.vault_status === 'active' && mandate.vault_id
+      ? FLASH.vault_authorized
+      : FLASH.vault_error
+    : sp.vault === 'cancelled'
+    ? FLASH.vault_cancelled
+    : sp.vault === 'error'
+    ? FLASH.vault_error
     : sp.error
     ? FLASH[sp.error] ?? null
     : null

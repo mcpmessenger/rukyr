@@ -111,7 +111,13 @@ function must<T>(r: { data: T | null; error: { message: string } | null }): T {
 export async function getDemoProfile(kind: 'agent' | 'human'): Promise<Profile> {
   if (!usingSupabase) return mem().profiles.find((p) => p.kind === kind)!
   const rows = must(
-    await sb().from('profiles').select('*').eq('kind', kind).order('created_at').limit(1),
+    await sb()
+      .from('profiles')
+      .select('*')
+      .eq('kind', kind)
+      .neq('display_name', '__operator_mandate__')
+      .order('created_at')
+      .limit(1),
   ) as Profile[]
   if (!rows.length) throw new Error(`No ${kind} profile found. Run supabase/schema.sql`)
   return rows[0]
@@ -448,21 +454,134 @@ export async function getStats() {
 }
 
 // ---------- operator budget mandate & vault ----------
+const MANDATE_PROFILE_ID = '00000000-0000-0000-0000-000000000001'
+const DEFAULT_MANDATE: OperatorMandate = {
+  vault_id: null,
+  vault_status: 'unauthorized',
+  weekly_cap_cents: 5000,
+  spent_this_week_cents: 0,
+  per_task_cap_cents: 500,
+  operator_email: 'operator@rukyr.ai',
+  last_authorized_at: null,
+}
+
+function normalizeMandate(raw: Partial<OperatorMandate> | null | undefined): OperatorMandate {
+  return {
+    vault_id: raw?.vault_id ?? DEFAULT_MANDATE.vault_id,
+    vault_status: raw?.vault_status ?? DEFAULT_MANDATE.vault_status,
+    weekly_cap_cents:
+      typeof raw?.weekly_cap_cents === 'number' ? raw.weekly_cap_cents : DEFAULT_MANDATE.weekly_cap_cents,
+    spent_this_week_cents:
+      typeof raw?.spent_this_week_cents === 'number'
+        ? raw.spent_this_week_cents
+        : DEFAULT_MANDATE.spent_this_week_cents,
+    per_task_cap_cents:
+      typeof raw?.per_task_cap_cents === 'number' ? raw.per_task_cap_cents : DEFAULT_MANDATE.per_task_cap_cents,
+    operator_email: raw?.operator_email ?? DEFAULT_MANDATE.operator_email,
+    last_authorized_at: raw?.last_authorized_at ?? DEFAULT_MANDATE.last_authorized_at,
+  }
+}
+
 export async function getOperatorMandate(): Promise<OperatorMandate> {
+  if (!usingSupabase) return mem().mandate
+
+  // 1. Primary: dedicated single-row operator_mandate table
+  const res = await sb().from('operator_mandate').select('*').eq('id', 1).maybeSingle()
+  if (!res.error) {
+    if (res.data) {
+      const m = normalizeMandate(res.data as Partial<OperatorMandate>)
+      g.__rukyrMem && (g.__rukyrMem.mandate = m)
+      return m
+    }
+    const seeded = await sb()
+      .from('operator_mandate')
+      .upsert({ id: 1, ...DEFAULT_MANDATE }, { onConflict: 'id' })
+      .select('*')
+      .single()
+    if (!seeded.error && seeded.data) {
+      const m = normalizeMandate(seeded.data as Partial<OperatorMandate>)
+      g.__rukyrMem && (g.__rukyrMem.mandate = m)
+      return m
+    }
+  }
+
+  // 2. Durable Supabase fallback if operator_mandate table is not migrated yet
+  try {
+    const fb = await sb().from('profiles').select('paypal_email').eq('id', MANDATE_PROFILE_ID).maybeSingle()
+    if (!fb.error && fb.data?.paypal_email) {
+      const parsed = JSON.parse(fb.data.paypal_email) as Partial<OperatorMandate>
+      const m = normalizeMandate(parsed)
+      g.__rukyrMem && (g.__rukyrMem.mandate = m)
+      return m
+    }
+    if (!fb.error && !fb.data) {
+      await sb().from('profiles').upsert(
+        {
+          id: MANDATE_PROFILE_ID,
+          kind: 'agent',
+          display_name: '__operator_mandate__',
+          paypal_email: JSON.stringify(DEFAULT_MANDATE),
+          reputation: 5,
+        },
+        { onConflict: 'id' },
+      )
+      return { ...DEFAULT_MANDATE }
+    }
+  } catch (err: any) {
+    console.warn('Supabase mandate fallback read warning:', err?.message || err)
+  }
+
   return mem().mandate
 }
 
 export async function updateOperatorMandate(patch: Partial<OperatorMandate>): Promise<OperatorMandate> {
-  Object.assign(mem().mandate, patch)
-  return mem().mandate
+  if (!usingSupabase) {
+    Object.assign(mem().mandate, patch)
+    return mem().mandate
+  }
+
+  const current = await getOperatorMandate()
+  const next = normalizeMandate({ ...current, ...patch })
+  if (g.__rukyrMem) g.__rukyrMem.mandate = next
+
+  // 1. Primary: update single-row operator_mandate table
+  const res = await sb()
+    .from('operator_mandate')
+    .upsert({ id: 1, ...next }, { onConflict: 'id' })
+    .select('*')
+    .single()
+  if (!res.error && res.data) {
+    return normalizeMandate(res.data as Partial<OperatorMandate>)
+  }
+
+  // 2. Durable Supabase fallback if operator_mandate table is not migrated yet
+  const fb = await sb().from('profiles').upsert(
+    {
+      id: MANDATE_PROFILE_ID,
+      kind: 'agent',
+      display_name: '__operator_mandate__',
+      paypal_email: JSON.stringify(next),
+      reputation: 5,
+    },
+    { onConflict: 'id' },
+  )
+  if (fb.error) {
+    console.warn('Supabase mandate fallback write warning:', fb.error.message)
+  }
+  return next
 }
 
 export async function recordMandateSpend(cents: number): Promise<void> {
-  mem().mandate.spent_this_week_cents += cents
+  const current = await getOperatorMandate()
+  await updateOperatorMandate({
+    spent_this_week_cents: current.spent_this_week_cents + cents,
+  })
 }
 
 export async function revokeOperatorMandate(): Promise<OperatorMandate> {
-  mem().mandate.vault_status = 'revoked'
-  mem().mandate.vault_id = null
-  return mem().mandate
+  return updateOperatorMandate({
+    vault_status: 'revoked',
+    vault_id: null,
+  })
 }
+
