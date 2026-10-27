@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { randomUUID } from 'node:crypto'
+import { sendTaskAlertEmail } from './email'
 import { voidAuthorization } from './paypal'
 import {
   CLAIM_TIMEOUT_MS,
@@ -9,6 +10,8 @@ import {
   type Task,
   type Bid,
   type OperatorMandate,
+  type EarnerAlertSubscription,
+  type AlertDelivery,
 } from './types'
 
 /**
@@ -35,6 +38,8 @@ interface Mem {
   escrows: Escrow[]
   bids: Bid[]
   mandate: OperatorMandate
+  alertSubscriptions: EarnerAlertSubscription[]
+  alertDeliveries: AlertDelivery[]
 }
 const g = globalThis as unknown as { __rukyrMem?: Mem }
 
@@ -95,6 +100,8 @@ function seed(): Mem {
       operator_email: 'operator@rukyr.ai',
       last_authorized_at: null,
     },
+    alertSubscriptions: [],
+    alertDeliveries: [],
   }
 }
 function mem(): Mem {
@@ -117,6 +124,7 @@ export async function getDemoProfile(kind: 'agent' | 'human'): Promise<Profile> 
       .eq('kind', kind)
       .neq('display_name', '__operator_mandate__')
       .neq('display_name', '__scheduled_tasks__')
+      .neq('display_name', '__earner_alerts__')
       .order('created_at')
       .limit(1),
   ) as Profile[]
@@ -201,13 +209,15 @@ function hydrateTask(row: Task, map: Record<string, TaskScheduleMeta>): Task {
 export async function activateDueTasks(): Promise<{
   activated: string[]
   expired_scheduled: string[]
+  alerts: { sent: number; skipped: number; failed: number }
 }> {
   const now = Date.now()
   const all = await listTasks({ sweep: false })
   const due = all.filter(
     (t) => t.status === 'scheduled' && t.execute_at && Date.parse(t.execute_at) <= now,
   )
-  if (!due.length) return { activated: [], expired_scheduled: [] }
+  const alerts = { sent: 0, skipped: 0, failed: 0 }
+  if (!due.length) return { activated: [], expired_scheduled: [], alerts }
 
   const mandate = await getOperatorMandate()
   const activated: string[] = []
@@ -247,15 +257,23 @@ export async function activateDueTasks(): Promise<{
         : 240)
     const newDeadlineAt = new Date(now + mins * 60_000).toISOString()
 
-    await updateTask(t.id, {
+    const opened = await updateTask(t.id, {
       status: 'open',
       deadline_at: newDeadlineAt,
       deadline_minutes: mins,
     })
     activated.push(t.id)
+    try {
+      const res = await notifySubscribers(opened)
+      alerts.sent += res.sent
+      alerts.skipped += res.skipped
+      alerts.failed += res.failed
+    } catch (err) {
+      console.error('[activate] notifySubscribers failed for task', t.id, err)
+    }
   }
 
-  return { activated, expired_scheduled }
+  return { activated, expired_scheduled, alerts }
 }
 
 /** Activate due scheduled tasks, return stale claims to the queue, and expire tasks past their deadline. */
@@ -264,8 +282,9 @@ export async function sweepTasks(): Promise<{
   expired_scheduled: string[]
   reopened: string[]
   expired: string[]
+  alerts: { sent: number; skipped: number; failed: number }
 }> {
-  const { activated, expired_scheduled } = await activateDueTasks()
+  const { activated, expired_scheduled, alerts } = await activateDueTasks()
   const now = Date.now()
   const all = await listTasks({ sweep: false })
   const reopened: string[] = []
@@ -289,9 +308,18 @@ export async function sweepTasks(): Promise<{
         await upsertEscrow({ task_id: t.id, amount_cents: esc.amount_cents, status: 'voided' })
       }
       expired.push(t.id)
+    } else if (t.status === 'open' && !activated.includes(t.id)) {
+      try {
+        const res = await notifySubscribers(t)
+        alerts.sent += res.sent
+        alerts.skipped += res.skipped
+        alerts.failed += res.failed
+      } catch (err) {
+        console.error('[sweep] notifySubscribers failed for open task', t.id, err)
+      }
     }
   }
-  return { activated, expired_scheduled, reopened, expired }
+  return { activated, expired_scheduled, reopened, expired, alerts }
 }
 
 export async function listTasks(opts: { status?: string; sweep?: boolean } = {}): Promise<Task[]> {
@@ -814,5 +842,254 @@ export async function revokeOperatorMandate(): Promise<OperatorMandate> {
     vault_id: null,
   })
 }
+
+// ---------- earner alerts (subscriptions & idempotent deliveries) ----------
+const ALERTS_PROFILE_ID = '00000000-0000-0000-0000-000000000003'
+
+interface AlertsFallbackStore {
+  subscriptions: EarnerAlertSubscription[]
+  deliveries: AlertDelivery[]
+}
+
+async function getAlertsFallbackStore(): Promise<AlertsFallbackStore> {
+  if (!usingSupabase) {
+    return {
+      subscriptions: mem().alertSubscriptions,
+      deliveries: mem().alertDeliveries,
+    }
+  }
+  try {
+    const r = await sb().from('profiles').select('paypal_email').eq('id', ALERTS_PROFILE_ID).maybeSingle()
+    if (!r.error && r.data?.paypal_email) {
+      const parsed = JSON.parse(r.data.paypal_email) as Partial<AlertsFallbackStore>
+      return {
+        subscriptions: Array.isArray(parsed.subscriptions) ? parsed.subscriptions : [],
+        deliveries: Array.isArray(parsed.deliveries) ? parsed.deliveries : [],
+      }
+    }
+  } catch (err: any) {
+    console.warn('Supabase alerts fallback read warning:', err?.message || err)
+  }
+  return { subscriptions: [], deliveries: [] }
+}
+
+async function saveAlertsFallbackStore(store: AlertsFallbackStore): Promise<void> {
+  if (g.__rukyrMem) {
+    g.__rukyrMem.alertSubscriptions = store.subscriptions
+    g.__rukyrMem.alertDeliveries = store.deliveries
+  }
+  if (!usingSupabase) return
+  try {
+    await sb().from('profiles').upsert(
+      {
+        id: ALERTS_PROFILE_ID,
+        kind: 'agent',
+        display_name: '__earner_alerts__',
+        paypal_email: JSON.stringify(store),
+        reputation: 5,
+      },
+      { onConflict: 'id' },
+    )
+  } catch (err: any) {
+    console.warn('Supabase alerts fallback write warning:', err?.message || err)
+  }
+}
+
+export async function subscribeEarnerAlert(rawEmail: string): Promise<EarnerAlertSubscription> {
+  const email = rawEmail.trim().toLowerCase()
+  const now = new Date().toISOString()
+
+  if (usingSupabase) {
+    const existingRes = await sb()
+      .from('earner_alert_subscriptions')
+      .select('*')
+      .eq('email', email)
+      .maybeSingle()
+
+    if (!existingRes.error) {
+      if (existingRes.data) {
+        const current = existingRes.data as EarnerAlertSubscription
+        if (current.active && !current.unsubscribed_at) {
+          return current
+        }
+        const reactivated = await sb()
+          .from('earner_alert_subscriptions')
+          .update({ active: true, unsubscribed_at: null })
+          .eq('id', current.id)
+          .select('*')
+          .single()
+        if (!reactivated.error && reactivated.data) {
+          return reactivated.data as EarnerAlertSubscription
+        }
+      } else {
+        const created = await sb()
+          .from('earner_alert_subscriptions')
+          .insert({
+            email,
+            active: true,
+            unsubscribe_token: randomUUID().replace(/-/g, ''),
+            created_at: now,
+            unsubscribed_at: null,
+          })
+          .select('*')
+          .single()
+        if (!created.error && created.data) {
+          return created.data as EarnerAlertSubscription
+        }
+      }
+    }
+  }
+
+  // Zero-migration Supabase fallback (or in-memory fallback)
+  const store = await getAlertsFallbackStore()
+  const found = store.subscriptions.find((s) => s.email === email)
+  if (found) {
+    found.active = true
+    found.unsubscribed_at = null
+    if (!found.unsubscribe_token) {
+      found.unsubscribe_token = randomUUID().replace(/-/g, '')
+    }
+    await saveAlertsFallbackStore(store)
+    return found
+  }
+
+  const sub: EarnerAlertSubscription = {
+    id: randomUUID(),
+    email,
+    active: true,
+    unsubscribe_token: randomUUID().replace(/-/g, ''),
+    created_at: now,
+    unsubscribed_at: null,
+  }
+  store.subscriptions.push(sub)
+  await saveAlertsFallbackStore(store)
+  return sub
+}
+
+export async function unsubscribeEarnerAlertByToken(
+  rawToken: string,
+): Promise<EarnerAlertSubscription | null> {
+  const token = rawToken.trim()
+  if (!token) return null
+  const now = new Date().toISOString()
+
+  if (usingSupabase) {
+    const existingRes = await sb()
+      .from('earner_alert_subscriptions')
+      .select('*')
+      .eq('unsubscribe_token', token)
+      .maybeSingle()
+
+    if (!existingRes.error && existingRes.data) {
+      const updated = await sb()
+        .from('earner_alert_subscriptions')
+        .update({ active: false, unsubscribed_at: now })
+        .eq('unsubscribe_token', token)
+        .select('*')
+        .single()
+      if (!updated.error && updated.data) {
+        return updated.data as EarnerAlertSubscription
+      }
+    }
+  }
+
+  const store = await getAlertsFallbackStore()
+  const found = store.subscriptions.find((s) => s.unsubscribe_token === token)
+  if (!found) return null
+  found.active = false
+  found.unsubscribed_at = now
+  await saveAlertsFallbackStore(store)
+  return found
+}
+
+export async function listActiveAlertSubscribers(): Promise<EarnerAlertSubscription[]> {
+  if (usingSupabase) {
+    const res = await sb()
+      .from('earner_alert_subscriptions')
+      .select('*')
+      .eq('active', true)
+      .order('created_at', { ascending: true })
+    if (!res.error && res.data) {
+      return res.data as EarnerAlertSubscription[]
+    }
+  }
+  const store = await getAlertsFallbackStore()
+  return store.subscriptions.filter((s) => s.active)
+}
+
+export async function hasAlertDelivery(taskId: string, subscriberEmail: string): Promise<boolean> {
+  const email = subscriberEmail.trim().toLowerCase()
+  if (usingSupabase) {
+    const res = await sb()
+      .from('alert_deliveries')
+      .select('task_id')
+      .eq('task_id', taskId)
+      .eq('subscriber_email', email)
+      .maybeSingle()
+    if (!res.error) {
+      return Boolean(res.data)
+    }
+  }
+  const store = await getAlertsFallbackStore()
+  return store.deliveries.some((d) => d.task_id === taskId && d.subscriber_email === email)
+}
+
+export async function recordAlertDelivery(taskId: string, subscriberEmail: string): Promise<void> {
+  const email = subscriberEmail.trim().toLowerCase()
+  const sent_at = new Date().toISOString()
+  if (usingSupabase) {
+    const res = await sb()
+      .from('alert_deliveries')
+      .upsert({ task_id: taskId, subscriber_email: email, sent_at }, { onConflict: 'task_id,subscriber_email' })
+    if (!res.error) return
+  }
+  const store = await getAlertsFallbackStore()
+  if (!store.deliveries.some((d) => d.task_id === taskId && d.subscriber_email === email)) {
+    store.deliveries.push({ task_id: taskId, subscriber_email: email, sent_at })
+    await saveAlertsFallbackStore(store)
+  }
+}
+
+/**
+ * Notifies all active earner alert subscribers that `task` is open for claiming.
+ * Idempotent per (task_id, subscriber_email): running multiple times never double-sends.
+ * Never throws: individual subscriber failures are logged and skipped so activation is never blocked.
+ */
+export async function notifySubscribers(task: Task): Promise<{
+  sent: number
+  skipped: number
+  failed: number
+}> {
+  let sent = 0
+  let skipped = 0
+  let failed = 0
+
+  try {
+    const subscribers = await listActiveAlertSubscribers()
+    if (!subscribers.length) return { sent, skipped, failed }
+
+    for (const sub of subscribers) {
+      if (!sub.active || !sub.email) continue
+      try {
+        const alreadySent = await hasAlertDelivery(task.id, sub.email)
+        if (alreadySent) {
+          skipped++
+          continue
+        }
+        await sendTaskAlertEmail(task, sub)
+        await recordAlertDelivery(task.id, sub.email)
+        sent++
+      } catch (err) {
+        failed++
+        console.error(`[alerts] failed to send task=${task.id} to=${sub.email}:`, err)
+      }
+    }
+  } catch (err) {
+    console.error(`[alerts] notifySubscribers top-level error for task=${task.id}:`, err)
+  }
+
+  return { sent, skipped, failed }
+}
+
 
 

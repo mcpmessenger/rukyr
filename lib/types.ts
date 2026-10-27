@@ -106,3 +106,18 @@ export interface OperatorMandate {
   operator_email: string
   last_authorized_at: string | null
 }
+
+export interface EarnerAlertSubscription {
+  id: string
+  email: string
+  active: boolean
+  unsubscribe_token: string
+  created_at: string
+  unsubscribed_at: string | null
+}
+
+export interface AlertDelivery {
+  task_id: string
+  subscriber_email: string
+  sent_at: string
+}

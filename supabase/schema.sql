@@ -100,6 +100,25 @@ insert into operator_mandate (
 
 alter table operator_mandate enable row level security;
 
+create table earner_alert_subscriptions (
+  id uuid primary key default gen_random_uuid(),
+  email text not null unique,
+  active boolean not null default true,
+  unsubscribe_token text not null unique,
+  created_at timestamptz not null default now(),
+  unsubscribed_at timestamptz
+);
+create index earner_alert_subscriptions_active_idx on earner_alert_subscriptions(active) where active = true;
+alter table earner_alert_subscriptions enable row level security;
+
+create table alert_deliveries (
+  task_id text not null,
+  subscriber_email text not null,
+  sent_at timestamptz not null default now(),
+  primary key (task_id, subscriber_email)
+);
+alter table alert_deliveries enable row level security;
+
 -- Proof images: create a public-read Storage bucket named "proofs" (dashboard → Storage),
 -- or uncomment:
 -- insert into storage.buckets (id, name, public) values ('proofs', 'proofs', true);

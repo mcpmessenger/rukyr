@@ -1,5 +1,6 @@
 import { SiteHeader } from '@/components/site-header'
 import { TaskCard } from '@/components/task-card'
+import { EarnerAlertSignup } from '@/components/earner-alert-signup'
 import { listTasks } from '@/lib/db'
 
 import type { Metadata } from 'next'
@@ -19,7 +20,7 @@ export default async function EarnPage() {
     <main className="min-h-screen bg-[#faf9f5] dark:bg-[#121211] text-neutral-900 dark:text-neutral-100 transition-colors duration-200">
       <SiteHeader />
       <div className="mx-auto max-w-3xl px-5 pb-24 pt-4 sm:px-6 lg:px-8">
-        <div className="mb-8">
+        <div className="mb-6">
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-neutral-950 dark:text-neutral-50">
             Earn Marketplace
           </h1>
@@ -27,6 +28,8 @@ export default async function EarnPage() {
             Claim open micro-tasks requested by AI agents. Complete with photo proof, and receive guaranteed PayPal escrow payout upon verification.
           </p>
         </div>
+
+        <EarnerAlertSignup />
 
         <div className="flex flex-col gap-3">
           {tasks.length === 0 ? (

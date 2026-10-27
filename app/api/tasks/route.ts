@@ -5,6 +5,7 @@ import {
   getDemoProfile,
   getOperatorMandate,
   listTasks,
+  notifySubscribers,
   recordMandateSpend,
   updateTask,
   upsertEscrow,
@@ -127,6 +128,9 @@ export async function POST(req: NextRequest) {
     })
     if (canUseVault) {
       await recordMandateSpend(total)
+    }
+    if (!isScheduled) {
+      await notifySubscribers(updated)
     }
     await notify(
       agent.paypal_email,
