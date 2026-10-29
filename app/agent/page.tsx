@@ -1,8 +1,16 @@
 import { SiteHeader } from '@/components/site-header'
 import { AgentConsole, type ConsoleItem, type Prefill } from '@/components/agent-console'
-import { getEscrow, getLatestProof, getOperatorMandate, getStats, listBidsForTask, listTasks } from '@/lib/db'
+import {
+  getDemoProfile,
+  getEscrow,
+  getLatestProof,
+  getOperatorMandate,
+  getStats,
+  listBidsForTask,
+  listTasks,
+} from '@/lib/db'
 import { discoverExternalGigs } from '@/lib/subcontract'
-import type { TaskType } from '@/lib/types'
+import type { Task, TaskType } from '@/lib/types'
 
 import type { Metadata } from 'next'
 
@@ -26,20 +34,33 @@ const FLASH: Record<string, { kind: 'ok' | 'err'; text: string }> = {
 
 export default async function AgentPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const sp = await searchParams
-  const [tasks, stats, externalGigs, mandate] = await Promise.all([
-    listTasks(),
-    getStats(),
-    discoverExternalGigs(),
-    getOperatorMandate(),
+  let tasks: Task[] = []
+  let fetchError: string | null = null
+
+  const [tasksResult, stats, externalGigs, mandate, agentProfile] = await Promise.all([
+    listTasks().catch((err: unknown) => {
+      fetchError = (err as Error)?.message || 'Failed to load tasks from database'
+      return [] as Task[]
+    }),
+    getStats().catch(() => ({ escrowed_cents: 0, released_cents: 0, open: 0, paid: 0, total: 0 })),
+    discoverExternalGigs().catch(() => []),
+    getOperatorMandate().catch(() => undefined),
+    getDemoProfile('agent').catch(() => null),
   ])
+  tasks = tasksResult
+
   const items: ConsoleItem[] = await Promise.all(
     tasks.map(async (task) => ({
       task,
-      escrow: await getEscrow(task.id),
-      proof: task.status === 'submitted' || task.status === 'paid' ? await getLatestProof(task.id) : null,
-      bids: await listBidsForTask(task.id),
+      escrow: await getEscrow(task.id).catch(() => null),
+      proof:
+        task.status === 'submitted' || task.status === 'paid' || task.status === 'verified'
+          ? await getLatestProof(task.id).catch(() => null)
+          : null,
+      bids: await listBidsForTask(task.id).catch(() => []),
     })),
   )
+
   const prefill: Prefill | undefined = sp.title
     ? {
         title: sp.title,
@@ -49,10 +70,11 @@ export default async function AgentPage({ searchParams }: { searchParams: Promis
         proof_requirements: sp.proof,
       }
     : undefined
+
   const flash = sp.funded
     ? FLASH.funded
     : sp.vault === 'authorized'
-    ? mandate.vault_status === 'active' && mandate.vault_id
+    ? mandate?.vault_status === 'active' && mandate?.vault_id
       ? FLASH.vault_authorized
       : FLASH.vault_error
     : sp.vault === 'cancelled'
@@ -62,6 +84,8 @@ export default async function AgentPage({ searchParams }: { searchParams: Promis
     : sp.error
     ? FLASH[sp.error] ?? null
     : null
+
+  const initialTaskId = typeof sp.task === 'string' && sp.task.trim() ? sp.task.trim() : undefined
 
   return (
     <main className="min-h-screen bg-[#faf9f5] dark:bg-[#121211] text-neutral-900 dark:text-neutral-100 transition-colors duration-200">
@@ -73,6 +97,9 @@ export default async function AgentPage({ searchParams }: { searchParams: Promis
         flash={flash}
         externalGigs={externalGigs}
         initialMandate={mandate}
+        initialTaskId={initialTaskId}
+        fetchError={fetchError}
+        currentAgentId={agentProfile?.id}
       />
     </main>
   )

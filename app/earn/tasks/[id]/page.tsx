@@ -33,9 +33,14 @@ export async function generateMetadata({
 export default async function TaskPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   await listTasks() // lazy sweep so stale claims reopen
-  const [task, bids] = await Promise.all([getTask(id), listBidsForTask(id)])
+  const [task, bids, human, agent] = await Promise.all([
+    getTask(id),
+    listBidsForTask(id).catch(() => []),
+    getDemoProfile('human'),
+    getDemoProfile('agent').catch(() => null),
+  ])
   if (!task) notFound()
-  const human = await getDemoProfile('human')
+  const isOwner = Boolean(agent && task.agent_id === agent.id)
   const mine = task.claimed_by === human.id
   const stage =
     task.status === 'open'
@@ -96,6 +101,8 @@ export default async function TaskPage({ params }: { params: Promise<{ id: strin
               taskId={task.id}
               taskPriceCents={task.price_cents}
               stage={stage}
+              taskStatus={task.status}
+              isOwner={isOwner}
               claimedAt={task.claimed_at}
               proofRequirements={task.proof_requirements}
               initialBids={bids}

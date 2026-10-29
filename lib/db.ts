@@ -1,6 +1,6 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { randomUUID } from 'node:crypto'
-import { sendTaskAlertEmail } from './email'
+import { sendProofSubmittedEmail, sendTaskAlertEmail } from './email'
 import { voidAuthorization } from './paypal'
 import {
   CLAIM_TIMEOUT_MS,
@@ -1089,6 +1089,64 @@ export async function notifySubscribers(task: Task): Promise<{
   }
 
   return { sent, skipped, failed }
+}
+
+function isPlaceholderEmail(email: string | null | undefined): boolean {
+  if (!email) return true
+  const e = email.trim().toLowerCase()
+  return (
+    !e.includes('@') ||
+    e.endsWith('@example.com') ||
+    e === 'operator@rukyr.ai' ||
+    e.endsWith('@rukyr.ai')
+  )
+}
+
+/**
+ * Notifies the task poster / operator when an earner submits proof,
+ * sending the AI verdict, proof text, and a deep link to `/agent?task=<id>`.
+ * Never throws so proof submission is never blocked by an email error.
+ */
+export async function notifyOperatorOnProofSubmitted(task: Task, proof: Proof): Promise<void> {
+  try {
+    const recipients = new Set<string>()
+    const envOp = process.env.OPERATOR_EMAIL?.trim().toLowerCase()
+    if (envOp && !isPlaceholderEmail(envOp)) recipients.add(envOp)
+
+    const [mandate, agent, subscribers] = await Promise.all([
+      getOperatorMandate().catch(() => null),
+      getProfile(task.agent_id).catch(() => null),
+      listActiveAlertSubscribers().catch(() => []),
+    ])
+
+    if (mandate?.operator_email && !isPlaceholderEmail(mandate.operator_email)) {
+      recipients.add(mandate.operator_email.trim().toLowerCase())
+    }
+    if (agent?.paypal_email && !isPlaceholderEmail(agent.paypal_email)) {
+      recipients.add(agent.paypal_email.trim().toLowerCase())
+    }
+    for (const sub of subscribers) {
+      if (sub.active && sub.email && !isPlaceholderEmail(sub.email)) {
+        recipients.add(sub.email.trim().toLowerCase())
+      }
+    }
+
+    if (recipients.size === 0) {
+      // Fallback so mock console logging still triggers when no real inbox is configured yet
+      await sendProofSubmittedEmail(task, proof, mandate?.operator_email || 'operator@rukyr.ai')
+      return
+    }
+
+    for (const to of recipients) {
+      try {
+        await sendProofSubmittedEmail(task, proof, to)
+      } catch (err) {
+        console.error(`[alerts] failed to send proof-submitted email for task=${task.id} to=${to}:`, err)
+      }
+    }
+  } catch (err) {
+    console.error(`[alerts] notifyOperatorOnProofSubmitted error for task=${task.id}:`, err)
+  }
 }
 
 

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { addProof, getDemoProfile, getProfile, getTask, storeProofImage, updateTask } from '@/lib/db'
+import { addProof, getDemoProfile, getTask, notifyOperatorOnProofSubmitted, storeProofImage, updateTask } from '@/lib/db'
 import { verifyProof } from '@/lib/ai-verify'
-import { notify } from '@/lib/email'
 import { approveTask } from '@/lib/service'
 
 export const dynamic = 'force-dynamic'
@@ -37,8 +36,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const proof = await addProof({ task_id: id, human_id: human.id, proof_text: text, proof_image_url: imageUrl, ...verdict })
   let updated = await updateTask(id, { status: 'submitted' })
 
-  const agent = await getProfile(task.agent_id)
-  await notify(agent?.paypal_email, 'Proof submitted', `Proof for "${task.title}" is ready for review. AI verdict: ${verdict.ai_verdict}.`)
+  await notifyOperatorOnProofSubmitted(updated, proof)
 
   if (AUTO_RELEASE > 0 && verdict.ai_verdict === 'pass' && (verdict.ai_confidence ?? 0) >= AUTO_RELEASE) {
     updated = (await approveTask(updated)).task

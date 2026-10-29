@@ -1,6 +1,7 @@
 'use client'
 
 import Image from 'next/image'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { StatusBadge, formatScheduledTime, timeLeft } from './task-card'
@@ -15,7 +16,17 @@ import {
   type OperatorMandate,
 } from '@/lib/types'
 import type { ExternalGig } from '@/lib/subcontract'
-import { Plus, ShieldCheck, Briefcase, ListChecks, CheckCircle2, AlertCircle, CalendarClock } from 'lucide-react'
+import {
+  Plus,
+  ShieldCheck,
+  Briefcase,
+  ListChecks,
+  CheckCircle2,
+  AlertCircle,
+  CalendarClock,
+  RefreshCw,
+  ExternalLink,
+} from 'lucide-react'
 
 export interface ConsoleItem {
   task: Task
@@ -55,18 +66,19 @@ function getSchedulePreset(kind: 'tomorrow_7am' | 'tomorrow_8am' | 'monday_8am')
     d.setHours(8, 0, 0, 0)
   } else if (kind === 'monday_8am') {
     const day = d.getDay()
-    const daysUntilMonday = ((8 - day) % 7) || 7
+    const daysUntilMonday = (8 - day) % 7 || 7
     d.setDate(d.getDate() + daysUntilMonday)
     d.setHours(8, 0, 0, 0)
   }
   return toDatetimeLocalValue(d)
 }
 
+// Put submitted first so tasks waiting on approval always float to the top of All
 const STATUS_SORT_ORDER: Record<string, number> = {
-  open: 0,
-  scheduled: 1,
-  claimed: 2,
-  submitted: 3,
+  submitted: 0,
+  open: 1,
+  scheduled: 2,
+  claimed: 3,
   pending_funding: 4,
   verified: 5,
   paid: 6,
@@ -81,6 +93,9 @@ export function AgentConsole({
   flash,
   externalGigs = [],
   initialMandate,
+  initialTaskId,
+  fetchError = null,
+  currentAgentId,
 }: {
   items: ConsoleItem[]
   stats: ConsoleStats
@@ -88,22 +103,72 @@ export function AgentConsole({
   flash?: { kind: 'ok' | 'err'; text: string } | null
   externalGigs?: ExternalGig[]
   initialMandate?: OperatorMandate
+  initialTaskId?: string
+  fetchError?: string | null
+  currentAgentId?: string
 }) {
   const router = useRouter()
   const [activeView, setActiveView] = useState<'tasks' | 'mandate' | 'gigs'>('tasks')
-  const [tab, setTab] = useState<(typeof TABS)[number]>('all')
+  const [tab, setTab] = useState<(typeof TABS)[number]>(() => {
+    if (initialTaskId) {
+      const target = items.find((i) => i.task.id === initialTaskId)
+      if (target && ['expired', 'cancelled'].includes(target.task.status)) {
+        return 'expired'
+      }
+    }
+    return 'all'
+  })
   const [showForm, setShowForm] = useState(Boolean(prefill?.title))
   const [executeAtLocal, setExecuteAtLocal] = useState('')
   const [mandate, setMandate] = useState<OperatorMandate | undefined>(initialMandate)
-  const [selected, setSelected] = useState<string | null>(
-    () => items.find((i) => !['expired', 'cancelled'].includes(i.task.status))?.task.id ?? items[0]?.task.id ?? null,
-  )
+  const [selected, setSelected] = useState<string | null>(() => {
+    if (initialTaskId && items.some((i) => i.task.id === initialTaskId)) {
+      return initialTaskId
+    }
+    const waiting = items.find((i) => i.task.status === 'submitted')
+    if (waiting) return waiting.task.id
+    return (
+      items.find((i) => !['expired', 'cancelled'].includes(i.task.status))?.task.id ??
+      items[0]?.task.id ??
+      null
+    )
+  })
   const [busy, setBusy] = useState<string | null>(null)
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(flash ?? null)
+
+  // Mark this browser as an active operator session so /earn/tasks/[id] can default to the Owner Bar
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('rukyr_operator_session', '1')
+    } catch {
+      // ignore storage errors
+    }
+  }, [])
 
   useEffect(() => {
     if (initialMandate) setMandate(initialMandate)
   }, [initialMandate])
+
+  // Deep-link support: when ?task=<id> is provided, select it and scroll into view
+  useEffect(() => {
+    if (!initialTaskId) return
+    const target = items.find((i) => i.task.id === initialTaskId)
+    if (!target) return
+    setActiveView('tasks')
+    if (['expired', 'cancelled'].includes(target.task.status)) {
+      setTab('expired')
+    }
+    setSelected(initialTaskId)
+    const timer = setTimeout(() => {
+      const cardEl =
+        target.task.status === 'submitted'
+          ? document.getElementById('proof-review-card') ||
+            document.getElementById(`task-card-${initialTaskId}`)
+          : document.getElementById(`task-card-${initialTaskId}`)
+      cardEl?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 100)
+    return () => clearTimeout(timer)
+  }, [initialTaskId, items])
 
   // Automatically trigger activation when a scheduled task's execute_at arrives
   useEffect(() => {
@@ -120,6 +185,7 @@ export function AgentConsole({
     return () => clearInterval(timer)
   }, [items, router])
 
+  const submittedItems = items.filter((i) => i.task.status === 'submitted')
   const activeItems = items.filter((i) => !['expired', 'cancelled'].includes(i.task.status))
   const shown = items
     .filter((i) =>
@@ -142,26 +208,38 @@ export function AgentConsole({
     })
   const sel = items.find((i) => i.task.id === selected) ?? null
 
+  function focusTaskForReview(taskId: string) {
+    setActiveView('tasks')
+    setTab('all')
+    setSelected(taskId)
+    setTimeout(() => {
+      const el =
+        document.getElementById('proof-review-card') ||
+        document.getElementById('task-detail-pane')
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 60)
+  }
+
   async function act(id: string, action: 'approve' | 'reject' | 'cancel') {
     setBusy(id + action)
     const res = await fetch(`/api/tasks/${id}/verify`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action }),
+      body: JSON.stringify({ action, agent_id: currentAgentId }),
     })
-    const data = await res.json()
+    const data = await res.json().catch(() => ({}))
     setBusy(null)
     setMsg(
       res.ok
         ? {
             kind: 'ok',
             text: {
-              approve: 'Approved. Payment captured and earner paid.',
-              reject: 'Rejected. Task reopened.',
-              cancel: 'Cancelled. PayPal escrow hold voided and weekly mandate pool refunded.',
+              approve: 'Approved! PayPal escrow hold captured and earner paid.',
+              reject: 'Proof rejected. Task returned to open queue.',
+              cancel: 'Task cancelled. PayPal escrow hold voided and weekly mandate pool refunded.',
             }[action],
           }
-        : { kind: 'err', text: data.error },
+        : { kind: 'err', text: data.error || `Failed to ${action} task` },
     )
     router.refresh()
   }
@@ -288,6 +366,67 @@ export function AgentConsole({
 
   return (
     <div className="mx-auto max-w-6xl px-5 pb-24 pt-4 sm:px-6 lg:px-8">
+      {/* P0 #1: Full-width Action Needed Banner when any task has status === 'submitted' */}
+      {submittedItems.length > 0 && (
+        <div
+          role="region"
+          aria-label="Action needed: proof waiting for review"
+          className="mb-6 rounded-2xl border-2 border-amber-400 dark:border-[#f4a261] bg-amber-50/95 dark:bg-[#2b2116] p-4 sm:p-5 shadow-sm"
+        >
+          <div className="flex flex-col gap-3">
+            {submittedItems.map(({ task, proof }) => (
+              <div
+                key={task.id}
+                className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
+              >
+                <div className="flex items-start gap-3">
+                  <span className="mt-1 inline-flex size-2.5 shrink-0 rounded-full bg-amber-500 animate-ping" />
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded-full bg-amber-200/90 dark:bg-amber-900/70 px-2.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider text-amber-950 dark:text-[#f4a261]">
+                        Action Needed • Proof Waiting
+                      </span>
+                      {proof?.ai_verdict && (
+                        <span className="font-mono text-[11px] font-semibold text-amber-900 dark:text-amber-200">
+                          AI Verdict: {proof.ai_verdict.toUpperCase()} (
+                          {Math.round((proof.ai_confidence ?? 0) * 100)}%)
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-1 text-sm sm:text-base font-bold text-neutral-950 dark:text-neutral-50">
+                      Proof submitted on &ldquo;{task.title}&rdquo; &mdash; review and release{' '}
+                      <span className="font-mono text-[#cf6a42] dark:text-[#f4a261]">
+                        {usd(task.price_cents)}
+                      </span>
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => focusTaskForReview(task.id)}
+                    className="rounded-full border border-amber-400 dark:border-amber-700 bg-white dark:bg-[#1a1918] px-4 py-2 text-xs font-semibold text-neutral-900 dark:text-neutral-100 hover:bg-amber-100/60 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
+                  >
+                    Review Proof
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!!busy}
+                    onClick={() => act(task.id, 'approve')}
+                    className="rounded-full bg-neutral-900 dark:bg-[#f4a261] px-4 py-2 text-xs font-semibold text-white dark:text-[#171412] hover:opacity-90 disabled:opacity-50 transition-opacity shadow-xs cursor-pointer"
+                  >
+                    {busy === task.id + 'approve'
+                      ? 'Releasing…'
+                      : `Approve & Release ${usd(task.price_cents)}`}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Top Header Row */}
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -295,14 +434,17 @@ export function AgentConsole({
             Agent Console
           </h1>
           <p className="mt-0.5 text-xs sm:text-sm text-neutral-500 dark:text-neutral-400">
-            Authenticated agent session: <span className="font-mono font-medium text-neutral-700 dark:text-neutral-300">glazyr-shopper-01</span>
+            Authenticated agent session:{' '}
+            <span className="font-mono font-medium text-neutral-700 dark:text-neutral-300">
+              glazyr-shopper-01
+            </span>
           </p>
         </div>
 
         <div className="flex items-center gap-2.5">
           <button
             onClick={() => setShowForm((s) => !s)}
-            className="inline-flex items-center gap-1.5 rounded-full bg-neutral-900 dark:bg-[#f4a261] px-4 py-2 text-xs sm:text-sm font-semibold text-white dark:text-[#171412] shadow-xs transition-all hover:opacity-90 active:scale-95"
+            className="inline-flex items-center gap-1.5 rounded-full bg-neutral-900 dark:bg-[#f4a261] px-4 py-2 text-xs sm:text-sm font-semibold text-white dark:text-[#171412] shadow-xs transition-all hover:opacity-90 active:scale-95 cursor-pointer"
           >
             <Plus className="size-4" />
             {showForm ? 'Close Form' : 'Post Task'}
@@ -533,6 +675,11 @@ export function AgentConsole({
           <span className="rounded-full bg-neutral-200/80 dark:bg-neutral-800 px-2 py-0.5 text-[10px] font-mono">
             {activeItems.length}
           </span>
+          {submittedItems.length > 0 && (
+            <span className="rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-mono font-bold text-white animate-pulse">
+              {submittedItems.length} waiting
+            </span>
+          )}
         </button>
 
         <button
@@ -608,7 +755,28 @@ export function AgentConsole({
           <div className="grid gap-6 lg:grid-cols-[1fr_1.1fr]">
             {/* Task Cards List */}
             <div className="flex flex-col gap-3">
-              {shown.length === 0 ? (
+              {fetchError ? (
+                <div
+                  role="alert"
+                  className="rounded-2xl border border-red-300 dark:border-red-900/70 bg-red-50/80 dark:bg-[#2a1717] p-8 text-center"
+                >
+                  <AlertCircle className="mx-auto size-6 text-red-600 dark:text-[#f08f8f]" />
+                  <p className="mt-2 text-sm font-semibold text-red-900 dark:text-[#f08f8f]">
+                    Couldn&apos;t load tasks &mdash; retry
+                  </p>
+                  <p className="mt-1 text-xs text-red-700/80 dark:text-red-300/80 font-mono">
+                    {fetchError}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => router.refresh()}
+                    className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-neutral-900 dark:bg-[#f4a261] px-4 py-2 text-xs font-semibold text-white dark:text-[#171412] hover:opacity-90 transition-opacity cursor-pointer"
+                  >
+                    <RefreshCw className="size-3.5" />
+                    Retry loading tasks
+                  </button>
+                </div>
+              ) : shown.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-neutral-300 dark:border-neutral-800 p-8 text-center text-sm text-neutral-500">
                   No tasks found in this filter.
                 </div>
@@ -616,21 +784,42 @@ export function AgentConsole({
                 shown.map(({ task, bids = [] }) => {
                   const pendingBids = bids.filter((b) => b.status === 'pending')
                   const isSel = selected === task.id
+                  const isMine = !currentAgentId || task.agent_id === currentAgentId
+                  const canCancel = isMine && ['scheduled', 'open', 'claimed', 'submitted'].includes(task.status)
+
                   return (
-                    <button
+                    <div
                       key={task.id}
+                      id={`task-card-${task.id}`}
+                      role="button"
+                      tabIndex={0}
                       onClick={() => setSelected(task.id)}
-                      className={`rounded-2xl border p-4 sm:p-5 text-left transition-all ${
-                        isSel
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          setSelected(task.id)
+                        }
+                      }}
+                      className={`rounded-2xl border p-4 sm:p-5 text-left transition-all cursor-pointer ${
+                        task.status === 'submitted'
+                          ? 'border-amber-400 dark:border-[#f4a261] ring-1 ring-amber-400/40 dark:ring-[#f4a261]/40 bg-amber-50/30 dark:bg-[#221d17]'
+                          : isSel
                           ? 'border-[#cf6a42] dark:border-[#f4a261] ring-1 ring-[#cf6a42]/30 dark:ring-[#f4a261]/30 bg-white dark:bg-[#1d1c1a] shadow-xs'
                           : 'border-neutral-200/80 dark:border-neutral-800/80 bg-white/70 dark:bg-[#1a1918]/80 hover:border-neutral-300 dark:hover:border-neutral-700'
                       }`}
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <p className="text-[10px] font-semibold tracking-wider uppercase text-neutral-500 dark:text-neutral-400">
-                            {TASK_TYPE_LABEL[task.task_type]}
-                          </p>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="text-[10px] font-semibold tracking-wider uppercase text-neutral-500 dark:text-neutral-400">
+                              {TASK_TYPE_LABEL[task.task_type]}
+                            </p>
+                            {!isMine && (
+                              <span className="rounded bg-neutral-200 dark:bg-neutral-800 px-1.5 py-0.5 font-mono text-[9px] text-neutral-600 dark:text-neutral-400">
+                                External Agent
+                              </span>
+                            )}
+                          </div>
                           <p className="mt-1 font-semibold text-neutral-900 dark:text-neutral-100 leading-snug">
                             {task.title}
                           </p>
@@ -639,13 +828,19 @@ export function AgentConsole({
                           {usd(task.price_cents)}
                         </span>
                       </div>
-                      <div className="mt-3 flex items-center justify-between text-xs text-neutral-500 dark:text-neutral-400">
+
+                      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-neutral-500 dark:text-neutral-400">
                         <span className="font-mono">
                           {task.status === 'scheduled'
                             ? `${Math.round((task.deadline_minutes ?? 240) / 60)}h claim window on open`
                             : timeLeft(task.deadline_at)}
                         </span>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {task.status === 'submitted' && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/20 dark:bg-amber-500/25 border border-amber-500/50 text-amber-900 dark:text-[#f4a261] px-2.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wide animate-pulse">
+                              ● PROOF WAITING
+                            </span>
+                          )}
                           {pendingBids.length > 0 && task.status === 'open' && (
                             <span className="rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-[#f4a261] px-2 py-0.5 text-[10px] font-medium">
                               {pendingBids.length} offer{pendingBids.length > 1 ? 's' : ''}
@@ -654,14 +849,61 @@ export function AgentConsole({
                           <StatusBadge status={task.status} executeAt={task.execute_at} />
                         </div>
                       </div>
-                    </button>
+
+                      {/* Card-level Action Row: Direct Approve & Release for submitted tasks + Secondary Cancel button */}
+                      {(task.status === 'submitted' || canCancel) && (
+                        <div
+                          onClick={(e) => e.stopPropagation()}
+                          className="mt-3.5 flex flex-wrap items-center justify-between gap-2 border-t border-neutral-200/80 dark:border-neutral-800/80 pt-3"
+                        >
+                          {task.status === 'submitted' && isMine ? (
+                            <div className="flex flex-wrap items-center gap-2">
+                              <button
+                                type="button"
+                                disabled={!!busy}
+                                onClick={() => act(task.id, 'approve')}
+                                className="rounded-full bg-neutral-900 dark:bg-[#f4a261] px-3.5 py-1.5 text-xs font-semibold text-white dark:text-[#171412] hover:opacity-90 disabled:opacity-50 transition-opacity shadow-2xs cursor-pointer"
+                              >
+                                {busy === task.id + 'approve'
+                                  ? 'Releasing…'
+                                  : `Approve & Release ${usd(task.price_cents)}`}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={!!busy}
+                                onClick={() => act(task.id, 'reject')}
+                                className="rounded-full border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-50 cursor-pointer"
+                              >
+                                Reject
+                              </button>
+                            </div>
+                          ) : (
+                            <span />
+                          )}
+
+                          {canCancel && (
+                            <button
+                              type="button"
+                              disabled={!!busy}
+                              onClick={() => act(task.id, 'cancel')}
+                              className="rounded-full border border-neutral-300 dark:border-neutral-700 bg-white/80 dark:bg-neutral-900/80 px-3 py-1 text-[11px] font-medium text-neutral-600 dark:text-neutral-300 hover:border-red-300 hover:text-red-600 dark:hover:border-red-800 dark:hover:text-red-400 disabled:opacity-50 transition-colors cursor-pointer"
+                            >
+                              {busy === task.id + 'cancel' ? 'Cancelling…' : 'Cancel task'}
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   )
                 })
               )}
             </div>
 
             {/* Selected Task Detail / Proof Review Pane */}
-            <aside className="rounded-2xl border border-neutral-200/80 dark:border-neutral-800/80 bg-white dark:bg-[#1a1918] p-5 sm:p-6 shadow-xs lg:sticky lg:top-24 lg:self-start">
+            <aside
+              id="task-detail-pane"
+              className="rounded-2xl border border-neutral-200/80 dark:border-neutral-800/80 bg-white dark:bg-[#1a1918] p-5 sm:p-6 shadow-xs lg:sticky lg:top-24 lg:self-start"
+            >
               {!sel ? (
                 <div className="py-12 text-center text-sm text-neutral-500">
                   Select a task from the list to review timeline, earner offers, and submitted proofs.
@@ -670,6 +912,7 @@ export function AgentConsole({
                 <TaskDetail
                   item={sel}
                   busy={busy}
+                  isMine={!currentAgentId || sel.task.agent_id === currentAgentId}
                   onAct={act}
                   onAcceptBid={(bidId) => acceptBid(sel.task.id, bidId)}
                 />
@@ -894,11 +1137,13 @@ export function AgentConsole({
 function TaskDetail({
   item,
   busy,
+  isMine,
   onAct,
   onAcceptBid,
 }: {
   item: ConsoleItem
   busy: string | null
+  isMine: boolean
   onAct: (id: string, a: 'approve' | 'reject' | 'cancel') => void
   onAcceptBid: (bidId: string) => void
 }) {
@@ -911,9 +1156,21 @@ function TaskDetail({
   return (
     <div>
       <div className="flex items-start justify-between gap-3">
-        <h2 className="text-base sm:text-lg font-bold text-neutral-900 dark:text-neutral-100">
-          {task.title}
-        </h2>
+        <div>
+          <h2 className="text-base sm:text-lg font-bold text-neutral-900 dark:text-neutral-100">
+            {task.title}
+          </h2>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-neutral-500">
+            <span className="font-mono">{ isMine ? 'Posted by you (glazyr-shopper-01)' : `Agent: ${task.agent_id.slice(0, 8)}…` }</span>
+            <span>&middot;</span>
+            <Link
+              href={`/earn/tasks/${task.id}`}
+              className="inline-flex items-center gap-1 underline hover:text-neutral-800 dark:hover:text-neutral-200"
+            >
+              View task page <ExternalLink className="size-3" />
+            </Link>
+          </div>
+        </div>
         <StatusBadge status={task.status} executeAt={task.execute_at} />
       </div>
 
@@ -999,7 +1256,7 @@ function TaskDetail({
                   </div>
                   {b.pitch && <p className="mt-1 text-neutral-600 dark:text-neutral-400">{b.pitch}</p>}
                 </div>
-                {task.status === 'open' && b.status === 'pending' && (
+                {task.status === 'open' && b.status === 'pending' && isMine && (
                   <button
                     disabled={!!busy}
                     onClick={() => onAcceptBid(b.id)}
@@ -1014,76 +1271,103 @@ function TaskDetail({
         </div>
       )}
 
-      {/* Submitted Proof Card */}
-      {proof && task.status === 'submitted' && (
-        <div className="mt-4 rounded-xl border border-neutral-200/80 dark:border-neutral-800 bg-neutral-50/50 dark:bg-[#161514] p-4">
-          <p className="text-[10px] uppercase font-bold tracking-wider text-neutral-500">Submitted Proof</p>
-          {proof.proof_image_url && (
-            <div className="relative mt-2.5 overflow-hidden rounded-xl border border-neutral-200 dark:border-neutral-700 bg-black/5">
-              <Image
-                src={proof.proof_image_url}
-                alt="Proof submitted by earner"
-                width={600}
-                height={400}
-                unoptimized
-                className="max-h-64 w-full object-contain"
-              />
+      {/* P0: Submitted Proof & Decision Card — always renders when status === 'submitted' even if proof is null */}
+      {(task.status === 'submitted' || proof) && (
+        <div
+          id="proof-review-card"
+          className="mt-4 rounded-xl border border-neutral-200/80 dark:border-neutral-800 bg-neutral-50/50 dark:bg-[#161514] p-4"
+        >
+          <p className="text-[10px] uppercase font-bold tracking-wider text-neutral-500">
+            Submitted Proof
+          </p>
+
+          {proof ? (
+            <>
+              {proof.proof_image_url && (
+                <div className="relative mt-2.5 overflow-hidden rounded-xl border border-neutral-200 dark:border-neutral-700 bg-black/5">
+                  <Image
+                    src={proof.proof_image_url}
+                    alt="Proof submitted by earner"
+                    width={600}
+                    height={400}
+                    unoptimized
+                    className="max-h-64 w-full object-contain"
+                  />
+                </div>
+              )}
+              {proof.proof_text && (
+                <p className="mt-3 text-xs sm:text-sm text-neutral-800 dark:text-neutral-200 leading-relaxed bg-white dark:bg-neutral-900 p-3 rounded-lg border border-neutral-200 dark:border-neutral-800 whitespace-pre-wrap">
+                  {proof.proof_text}
+                </p>
+              )}
+
+              {/* AI Pre-Screening Verdict Badge */}
+              <div
+                className={`mt-3 rounded-xl p-3 text-xs ${
+                  v === 'pass'
+                    ? 'bg-emerald-50 dark:bg-[#1d2b22] text-emerald-900 dark:text-[#8bd3a8] border border-emerald-200 dark:border-emerald-800/60'
+                    : v === 'fail'
+                    ? 'bg-red-50 dark:bg-[#331d1d] text-red-900 dark:text-[#f08f8f] border border-red-200 dark:border-red-800/60'
+                    : 'bg-amber-50 dark:bg-[#33281c] text-amber-900 dark:text-[#f4a261] border border-amber-200 dark:border-amber-800/60'
+                }`}
+              >
+                <div className="flex items-center justify-between font-semibold">
+                  <span>Vision AI Verdict: {(v || 'unsure').toUpperCase()}</span>
+                  <span>{Math.round((proof.ai_confidence ?? 0) * 100)}% Confidence</span>
+                </div>
+                {proof.ai_reasoning && (
+                  <p className="mt-1 text-[11px] opacity-85 leading-normal">{proof.ai_reasoning}</p>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="mt-2.5 rounded-xl border border-amber-300 dark:border-amber-800/70 bg-amber-50 dark:bg-[#33281c] p-3 text-xs text-amber-900 dark:text-[#f4a261]">
+              Proof data unavailable &mdash;{' '}
+              <Link href={`/earn/tasks/${task.id}`} className="font-semibold underline">
+                check the task page
+              </Link>{' '}
+              or use the controls below to approve or reject directly.
             </div>
           )}
-          {proof.proof_text && (
-            <p className="mt-3 text-xs sm:text-sm text-neutral-800 dark:text-neutral-200 leading-relaxed bg-white dark:bg-neutral-900 p-3 rounded-lg border border-neutral-200 dark:border-neutral-800">
-              {proof.proof_text}
-            </p>
-          )}
 
-          {/* AI Pre-Screening Verdict Badge */}
-          <div
-            className={`mt-3 rounded-xl p-3 text-xs ${
-              v === 'pass'
-                ? 'bg-emerald-50 dark:bg-[#1d2b22] text-emerald-900 dark:text-[#8bd3a8] border border-emerald-200 dark:border-emerald-800/60'
-                : v === 'fail'
-                ? 'bg-red-50 dark:bg-[#331d1d] text-red-900 dark:text-[#f08f8f] border border-red-200 dark:border-red-800/60'
-                : 'bg-amber-50 dark:bg-[#33281c] text-amber-900 dark:text-[#f4a261] border border-amber-200 dark:border-amber-800/60'
-            }`}
-          >
-            <div className="flex items-center justify-between font-semibold">
-              <span>Vision AI Verdict: {v?.toUpperCase()}</span>
-              <span>{Math.round((proof.ai_confidence ?? 0) * 100)}% Confidence</span>
+          {task.status === 'submitted' && isMine && (
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={!!busy}
+                onClick={() => onAct(task.id, 'approve')}
+                className="flex-1 rounded-full bg-neutral-900 dark:bg-[#f4a261] px-4 py-2.5 text-xs sm:text-sm font-semibold text-white dark:text-[#171412] disabled:opacity-50 transition-opacity hover:opacity-90 shadow-2xs cursor-pointer"
+              >
+                {busy === task.id + 'approve' ? 'Releasing…' : `Approve & Release ${usd(task.price_cents)}`}
+              </button>
+              <button
+                type="button"
+                disabled={!!busy}
+                onClick={() => onAct(task.id, 'reject')}
+                className="rounded-full border border-neutral-300 dark:border-neutral-700 px-4 py-2.5 text-xs sm:text-sm font-medium text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-50 cursor-pointer"
+              >
+                Reject
+              </button>
             </div>
-            {proof.ai_reasoning && (
-              <p className="mt-1 text-[11px] opacity-85 leading-normal">{proof.ai_reasoning}</p>
-            )}
-          </div>
-
-          <div className="mt-4 flex gap-2">
-            <button
-              disabled={!!busy}
-              onClick={() => onAct(task.id, 'approve')}
-              className="flex-1 rounded-full bg-neutral-900 dark:bg-[#f4a261] px-4 py-2 text-xs sm:text-sm font-semibold text-white dark:text-[#171412] disabled:opacity-50 transition-opacity hover:opacity-90 shadow-2xs"
-            >
-              {busy === task.id + 'approve' ? 'Releasing…' : `Approve & Release ${usd(task.price_cents)}`}
-            </button>
-            <button
-              disabled={!!busy}
-              onClick={() => onAct(task.id, 'reject')}
-              className="rounded-full border border-neutral-300 dark:border-neutral-700 px-4 py-2 text-xs sm:text-sm font-medium text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-50"
-            >
-              Reject
-            </button>
-          </div>
+          )}
         </div>
       )}
 
-      {['scheduled', 'open', 'claimed', 'submitted'].includes(task.status) && (
-        <button
-          disabled={!!busy}
-          onClick={() => onAct(task.id, 'cancel')}
-          className="mt-4 text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 underline disabled:opacity-50"
-        >
-          Cancel task, release escrow hold & refund weekly pool
-        </button>
+      {/* P1: Real secondary button for Cancel task */}
+      {isMine && ['scheduled', 'open', 'claimed', 'submitted'].includes(task.status) && (
+        <div className="mt-5 border-t border-neutral-200 dark:border-neutral-800 pt-4">
+          <button
+            type="button"
+            disabled={!!busy}
+            onClick={() => onAct(task.id, 'cancel')}
+            className="w-full sm:w-auto rounded-full border border-neutral-300 dark:border-neutral-700 bg-neutral-100/80 dark:bg-neutral-900 px-4 py-2 text-xs font-semibold text-neutral-700 dark:text-neutral-300 hover:border-red-300 hover:bg-red-50 hover:text-red-700 dark:hover:border-red-900/60 dark:hover:bg-red-950/30 dark:hover:text-red-300 disabled:opacity-50 transition-colors cursor-pointer"
+          >
+            {busy === task.id + 'cancel'
+              ? 'Cancelling & releasing hold…'
+              : 'Cancel task, release escrow hold & refund weekly pool'}
+          </button>
+        </div>
       )}
     </div>
   )
 }
-
