@@ -156,6 +156,7 @@ export default async function Page() {
             Rukyr <DonutMark width={24} height={13} className="text-[#cf6a42] dark:text-[#f4a261]" />
           </span>
           <span>The human layer for the agent economy.</span>
+          <a href="/privacy" className="text-xs sm:text-sm text-neutral-500 underline underline-offset-2 hover:text-neutral-800 dark:hover:text-neutral-200">Privacy</a>
           <span className="flex items-center gap-1 text-neutral-600 dark:text-neutral-400">
             <Check className="size-3.5 text-emerald-500" aria-hidden="true" /> PayPal AI Hackathon 2026
           </span>

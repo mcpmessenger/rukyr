@@ -3,6 +3,7 @@ import { TASK_TYPE_LABEL, usd, type EarnerAlertSubscription, type Proof, type Ta
 
 const key = process.env.RESEND_API_KEY?.trim()
 const FROM = process.env.EMAIL_FROM?.trim() || 'Rukyr <alerts@automationalien.com>'
+const REPLY_TO = process.env.EMAIL_REPLY_TO?.trim() || 'will@automationalien.com'
 const BASE_URL = (
   process.env.NEXT_PUBLIC_SITE_URL ||
   process.env.NEXT_PUBLIC_APP_URL ||
@@ -19,7 +20,7 @@ export async function notify(to: string | null | undefined, subject: string, bod
     return
   }
   try {
-    const res = await new Resend(key).emails.send({ from: FROM, to, subject, text: body })
+    const res = await new Resend(key).emails.send({ from: FROM, to, subject, text: body, reply_to: REPLY_TO })
     if (res.error) {
       console.error('[email] resend error:', res.error)
     }
@@ -131,6 +132,7 @@ export async function sendTaskAlertEmail(
 
   const res = await new Resend(key).emails.send({
     from: FROM,
+    reply_to: REPLY_TO,
     to: subscriber.email,
     subject,
     text,
@@ -220,6 +222,7 @@ export async function sendProofSubmittedEmail(
 
   const res = await new Resend(key).emails.send({
     from: FROM,
+    reply_to: REPLY_TO,
     to: cleanTo,
     subject,
     text,

@@ -90,6 +90,7 @@ export function EarnerAlertSignup() {
             {status === 'loading' ? 'Saving…' : 'Alert me when tasks open'}
           </button>
         </form>
+        <p className="mt-2 text-[11px] text-neutral-500 dark:text-neutral-400">We only email you when tasks open. See our <a href="/privacy" className="underline underline-offset-2">Privacy Policy</a>.</p>
       </div>
 
       {status === 'success' && message && (
