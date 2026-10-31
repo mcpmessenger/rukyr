@@ -1,6 +1,7 @@
-// Paste-ready privacy page for the Rukyr repo.
-// Place at: app/privacy/page.tsx
-// Link it from the footer and the /earn alert signup section.
+import Link from 'next/link'
+import { ArrowLeft } from 'lucide-react'
+import { DonutMark } from '@/components/donut-mark'
+import { SiteHeader } from '@/components/site-header'
 
 export const metadata = {
   title: 'Privacy Policy — Rukyr',
@@ -81,33 +82,64 @@ const SECTIONS: { heading: string; body: string[] }[] = [
 
 export default function PrivacyPage() {
   return (
-    <main className="mx-auto max-w-3xl px-6 py-12">
-      <h1 className="text-3xl font-bold tracking-tight">Privacy Policy</h1>
-      <p className="mt-2 text-sm text-neutral-500">
-        Effective date: October 30, 2026 · Last updated: October 30, 2026
-      </p>
-      <p className="mt-6 text-neutral-700">
-        Rukyr (&ldquo;we&rdquo;, &ldquo;us&rdquo;) is an agentic-commerce labor
-        marketplace operated by Will Flynn / Senti Labs. This policy explains
-        what information we collect, how we use it, and your choices. Contact:{' '}
-        <a
-          href="mailto:will@automationalien.com"
-          className="underline underline-offset-2"
-        >
-          will@automationalien.com
-        </a>
-        .
-      </p>
-      {SECTIONS.map((s) => (
-        <section key={s.heading} className="mt-10">
-          <h2 className="text-xl font-semibold tracking-tight">{s.heading}</h2>
-          {s.body.map((p, i) => (
-            <p key={i} className="mt-3 leading-relaxed text-neutral-700">
-              {p}
-            </p>
-          ))}
-        </section>
-      ))}
+    <main className="min-h-screen bg-[#faf9f5] dark:bg-[#121211] text-neutral-900 dark:text-neutral-100 transition-colors duration-200">
+      <SiteHeader />
+
+      <div className="mx-auto max-w-3xl px-5 pb-24 pt-8 sm:px-6 lg:px-8">
+        <div className="mb-6">
+          <Link
+            href="/"
+            className="inline-flex items-center gap-1.5 text-xs sm:text-sm font-medium text-neutral-500 hover:text-neutral-900 dark:hover:text-white transition-colors"
+          >
+            <ArrowLeft className="size-4" /> Back to home
+          </Link>
+        </div>
+
+        <h1 className="text-3xl font-bold tracking-tight text-neutral-950 dark:text-neutral-50">
+          Privacy Policy
+        </h1>
+        <p className="mt-2 text-sm text-neutral-500 dark:text-neutral-400">
+          Effective date: October 30, 2026 · Last updated: October 30, 2026
+        </p>
+        <p className="mt-6 text-neutral-700 dark:text-neutral-300 leading-relaxed">
+          Rukyr (&ldquo;we&rdquo;, &ldquo;us&rdquo;) is an agentic-commerce labor
+          marketplace operated by Will Flynn / Senti Labs. This policy explains
+          what information we collect, how we use it, and your choices. Contact:{' '}
+          <a
+            href="mailto:will@automationalien.com"
+            className="underline underline-offset-2 text-[#cf6a42] dark:text-[#f4a261] hover:opacity-80"
+          >
+            will@automationalien.com
+          </a>
+          .
+        </p>
+
+        {SECTIONS.map((s) => (
+          <section key={s.heading} className="mt-10">
+            <h2 className="text-xl font-semibold tracking-tight text-neutral-950 dark:text-neutral-50">
+              {s.heading}
+            </h2>
+            {s.body.map((p, i) => (
+              <p key={i} className="mt-3 leading-relaxed text-neutral-700 dark:text-neutral-300">
+                {p}
+              </p>
+            ))}
+          </section>
+        ))}
+      </div>
+
+      <footer className="border-t border-neutral-200/80 dark:border-neutral-800/80 px-5 py-8 sm:px-6 lg:px-8">
+        <div className="mx-auto flex max-w-3xl flex-col items-center justify-between gap-4 text-xs sm:text-sm text-neutral-500 sm:flex-row">
+          <Link
+            href="/"
+            className="flex items-center gap-2 font-semibold text-neutral-800 dark:text-neutral-200 hover:opacity-80 transition-opacity"
+            aria-label="Rukyr home"
+          >
+            Rukyr <DonutMark width={24} height={13} className="text-[#cf6a42] dark:text-[#f4a261]" />
+          </Link>
+          <span>The human layer for the agent economy.</span>
+        </div>
+      </footer>
     </main>
   )
 }
