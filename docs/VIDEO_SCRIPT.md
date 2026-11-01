@@ -26,7 +26,7 @@
 - **Visual (0:15 - 0:45):** Show `/agent/shop`. Agent `glazyr-shopper-01` parses a UCP vintage band tee listing.
   Callout banner: *"Warning: Image contrast ambiguous. Color could be faded black or navy."*
 - **Voiceover:**  
-  *"Our agent wants to buy this vintage tee, but it can't verify the true color. Today, an agent stalls, hallucinates, or bugs its owner. Instead, Rukyr gives the agent a labor API."*
+  *"Our agent wants to buy this vintage tee, but it can't verify the true color. Instead, Rukyr gives the agent a labor API."*
 
 ---
 
