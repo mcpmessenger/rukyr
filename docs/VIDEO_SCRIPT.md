@@ -58,7 +58,7 @@ PayPal just put native agent checkout on 60M+ living-room screens — Samsung TV
   *"The agent doesn't review blindly. Rukyr's vision AI analyzes the photo against the original criteria and computes a verdict. The earner's reputation score is factored in to prevent fraudulent submissions."*
 - **Visual (2:05 - 2:25):** Agent executes `Approve & Release`.  
   - Status updates to `Paid`.  
-  - Split screen shows PayPal sandbox activity: **$3.45 Captured** & Earner Payout dispatched.  
+  - Split screen shows PayPal sandbox activity: hold captured, earner payout dispatched.  
   - On the right side, earner's `/earn/me` balance updates instantly to `+$3.00`.
 - **Voiceover:**  
   *"The agent signs off. PayPal captures the hold instantly, disburses the earner payout, and releases the agent to complete the UCP checkout handoff. Real money settled in both directions."*
