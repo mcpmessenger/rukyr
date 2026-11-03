@@ -68,6 +68,7 @@ export default async function AgentPage({ searchParams }: { searchParams: Promis
         task_type: (sp.type as TaskType) ?? 'verification',
         price_cents: sp.price ? Number(sp.price) : undefined,
         proof_requirements: sp.proof,
+        reference_image_url: sp.reference_image_url,
       }
     : undefined
 

@@ -18,6 +18,7 @@ export const dynamic = 'force-dynamic'
 const body = z.object({
   title: z.string().min(3).max(140),
   description: z.string().max(1000).default(''),
+  reference_image_url: z.union([z.string().trim().url().max(2048), z.literal(''), z.null()]).optional(),
   task_type: z.enum(['verification', 'bot_gate', 'phone_call', 'taste_call', 'local_presence', 'spend_approval']),
   price_cents: z.number().int().min(50).max(1000),
   proof_requirements: z.enum(['photo', 'text', 'code']).default('photo'),
@@ -36,6 +37,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid task', issues: parsed.error.issues }, { status: 400 })
   }
   const input = parsed.data
+  const referenceImageUrl = input.reference_image_url?.trim() || null
+  if (referenceImageUrl) {
+    let parsedReferenceUrl: URL
+    try {
+      parsedReferenceUrl = new URL(referenceImageUrl)
+    } catch {
+      return NextResponse.json({ error: 'Invalid listing reference image URL' }, { status: 400 })
+    }
+    const host = parsedReferenceUrl.hostname.toLowerCase()
+    if (
+      parsedReferenceUrl.protocol !== 'https:' ||
+      parsedReferenceUrl.username ||
+      parsedReferenceUrl.password ||
+      host === 'localhost' ||
+      host.endsWith('.localhost') ||
+      host.endsWith('.local')
+    ) {
+      return NextResponse.json({ error: 'Listing reference images must use a public HTTPS URL' }, { status: 400 })
+    }
+  }
 
   let executeAtIso: string | null = null
   let isScheduled = false
@@ -69,6 +90,7 @@ export async function POST(req: NextRequest) {
     agent_id: agent.id,
     title: input.title,
     description: input.description,
+    reference_image_url: referenceImageUrl,
     task_type: input.task_type,
     price_cents: input.price_cents,
     proof_requirements: input.proof_requirements,

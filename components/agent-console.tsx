@@ -42,6 +42,7 @@ export interface ConsoleStats {
 export interface Prefill {
   title?: string
   description?: string
+  reference_image_url?: string
   task_type?: TaskType
   price_cents?: number
   proof_requirements?: string
@@ -330,6 +331,7 @@ export function AgentConsole({
       body: JSON.stringify({
         title: f.get('title'),
         description: f.get('description'),
+        reference_image_url: String(f.get('reference_image_url') || '').trim() || null,
         task_type: f.get('task_type'),
         price_cents: Math.round(Number(f.get('price')) * 100),
         proof_requirements: f.get('proof'),
@@ -538,6 +540,21 @@ export function AgentConsole({
                 placeholder="Specific guidance for photography, angles, light conditions, or physical checks..."
                 className={inputStyle + ' mt-1.5'}
               />
+            </label>
+
+            <label className="md:col-span-2 block text-xs font-semibold uppercase tracking-wider text-neutral-600 dark:text-neutral-300">
+              Listing / Reference Image URL (Optional)
+              <input
+                name="reference_image_url"
+                type="url"
+                maxLength={2048}
+                defaultValue={prefill?.reference_image_url}
+                placeholder="https://merchant.example/images/listing-photo.jpg"
+                className={inputStyle + ' mt-1.5'}
+              />
+              <span className="mt-1 block text-[10px] font-normal normal-case tracking-normal text-neutral-500">
+                The verifier compares this listing image with the worker&apos;s submitted photo.
+              </span>
             </label>
 
             <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-600 dark:text-neutral-300">
@@ -1283,16 +1300,38 @@ function TaskDetail({
 
           {proof ? (
             <>
-              {proof.proof_image_url && (
-                <div className="relative mt-2.5 overflow-hidden rounded-xl border border-neutral-200 dark:border-neutral-700 bg-black/5">
-                  <Image
-                    src={proof.proof_image_url}
-                    alt="Proof submitted by earner"
-                    width={600}
-                    height={400}
-                    unoptimized
-                    className="max-h-64 w-full object-contain"
-                  />
+              {(task.reference_image_url || proof.proof_image_url) && (
+                <div className="mt-2.5 grid gap-3 sm:grid-cols-2">
+                  {task.reference_image_url && (
+                    <div className="overflow-hidden rounded-xl border border-neutral-200 dark:border-neutral-700 bg-black/5">
+                      <p className="border-b border-neutral-200 dark:border-neutral-700 px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-neutral-500">
+                        Listing reference
+                      </p>
+                      <Image
+                        src={task.reference_image_url}
+                        alt="Product listing reference"
+                        width={600}
+                        height={400}
+                        unoptimized
+                        className="max-h-64 w-full object-contain"
+                      />
+                    </div>
+                  )}
+                  {proof.proof_image_url && (
+                    <div className="overflow-hidden rounded-xl border border-neutral-200 dark:border-neutral-700 bg-black/5">
+                      <p className="border-b border-neutral-200 dark:border-neutral-700 px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-neutral-500">
+                        Worker photo
+                      </p>
+                      <Image
+                        src={proof.proof_image_url}
+                        alt="Proof submitted by earner"
+                        width={600}
+                        height={400}
+                        unoptimized
+                        className="max-h-64 w-full object-contain"
+                      />
+                    </div>
+                  )}
                 </div>
               )}
               {proof.proof_text && (

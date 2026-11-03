@@ -20,7 +20,7 @@ export async function notify(to: string | null | undefined, subject: string, bod
     return
   }
   try {
-    const res = await new Resend(key).emails.send({ from: FROM, to, subject, text: body, reply_to: REPLY_TO })
+    const res = await new Resend(key).emails.send({ from: FROM, to, subject, text: body, replyTo: REPLY_TO })
     if (res.error) {
       console.error('[email] resend error:', res.error)
     }
@@ -132,7 +132,7 @@ export async function sendTaskAlertEmail(
 
   const res = await new Resend(key).emails.send({
     from: FROM,
-    reply_to: REPLY_TO,
+    replyTo: REPLY_TO,
     to: subscriber.email,
     subject,
     text,
@@ -222,7 +222,7 @@ export async function sendProofSubmittedEmail(
 
   const res = await new Resend(key).emails.send({
     from: FROM,
-    reply_to: REPLY_TO,
+    replyTo: REPLY_TO,
     to: cleanTo,
     subject,
     text,

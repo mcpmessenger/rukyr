@@ -56,13 +56,14 @@ function seed(): Mem {
   }
   const mk = (
     title: string, description: string, task_type: Task['task_type'],
-    price_cents: number, proof: string, minsLeft: number,
+    price_cents: number, proof: string, minsLeft: number, referenceImageUrl?: string,
   ): [Task, Escrow] => {
     const id = randomUUID()
     const fee = Math.round(price_cents * 0.15)
     return [
       {
         id, agent_id: agent.id, title, description, task_type, price_cents,
+        reference_image_url: referenceImageUrl ?? null,
         status: 'open', proof_requirements: proof, claimed_by: null, claimed_at: null,
         deadline_at: iso(now + minsLeft * 60_000), created_at: iso(now),
       },
@@ -77,7 +78,7 @@ function seed(): Mem {
   const seeded = [
     mk('Verify tee color in listing photo vs. real life',
       'The agent is buying a vintage band tee. The listing photo shows faded black, but the agent suspects navy. Find a similar item or visit the store and photograph it in daylight.',
-      'verification', 300, 'photo', 28),
+      'verification', 300, 'photo', 28, 'https://rukyr.com/vintage-band-tee.svg'),
     mk('Call a local store and check stock',
       'Call the store and confirm whether size M is in stock. Submit the name of the person you spoke to and what they said.',
       'phone_call', 650, 'text', 120),
@@ -350,7 +351,7 @@ export async function getTask(id: string): Promise<Task | null> {
 
 export async function createTask(
   input: Pick<Task, 'agent_id' | 'title' | 'description' | 'task_type' | 'price_cents' | 'proof_requirements' | 'deadline_at' | 'status'> &
-    Partial<Pick<Task, 'execute_at' | 'deadline_minutes' | 'status_reason'>>,
+    Partial<Pick<Task, 'execute_at' | 'deadline_minutes' | 'status_reason' | 'reference_image_url'>>,
 ): Promise<Task> {
   if (!usingSupabase) {
     const t: Task = {
@@ -371,6 +372,7 @@ export async function createTask(
     agent_id: input.agent_id,
     title: input.title,
     description: input.description,
+    reference_image_url: input.reference_image_url ?? null,
     task_type: input.task_type,
     price_cents: input.price_cents,
     status: input.status === 'scheduled' ? 'pending_funding' : input.status,
@@ -1148,6 +1150,5 @@ export async function notifyOperatorOnProofSubmitted(task: Task, proof: Proof): 
     console.error(`[alerts] notifyOperatorOnProofSubmitted error for task=${task.id}:`, err)
   }
 }
-
 
 

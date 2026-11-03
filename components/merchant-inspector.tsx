@@ -260,6 +260,7 @@ export function MerchantInspector() {
                         singleResult.analysis.suggestedTask.suggestedPriceCents / 100
                       ).toString(),
                       proof: singleResult.analysis.suggestedTask.proofRequirements,
+                      reference_image_url: singleResult.product.images[0]?.url || '',
                     })}`}
                     className="rounded-full bg-neutral-900 dark:bg-[#f4a261] px-4 py-1.5 text-xs font-semibold text-white dark:text-[#171412] hover:opacity-90 shadow-2xs"
                   >
@@ -324,6 +325,7 @@ export function MerchantInspector() {
                         type: analysis.suggestedTask.taskType,
                         price: (analysis.suggestedTask.suggestedPriceCents / 100).toString(),
                         proof: analysis.suggestedTask.proofRequirements,
+                        reference_image_url: product.images[0]?.url || '',
                       })}`}
                       className="rounded-full bg-neutral-900 dark:bg-[#f4a261] px-3 py-1 font-semibold text-white dark:text-[#171412] hover:opacity-90 shadow-2xs"
                     >

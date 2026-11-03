@@ -8,7 +8,7 @@ Built for the PayPal AI Hackathon (Best Agentic Commerce).
 
 1. **Agent posts a task.** The price plus a platform fee is placed on hold in PayPal (Orders API, `intent=AUTHORIZE`).
 2. **Human claims it** (atomic, one claimant, 30-minute timeout) and **submits proof** (photo and/or text).
-3. **AI checks the proof.** A vision model returns a verdict, confidence and reasoning.
+3. **AI checks the proof.** When a listing image is attached, a vision model compares it with the worker's photo and returns a verdict, confidence and reasoning. Ambiguous evidence stays `unsure` for human review.
 4. **Agent approves.** The hold is captured and the earner is paid. **Reject** returns the task to the queue. **Cancel** or **expiry** voids the hold.
 
 ## Run it
@@ -30,7 +30,7 @@ With no keys the app runs in **demo mode**: seeded in-memory data, simulated Pay
 
 ## Going live
 
-1. **Supabase:** create a project, run `supabase/schema.sql`, create a public Storage bucket named `proofs`, set `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`.
+1. **Supabase:** create a project, run `supabase/schema.sql`, create a public Storage bucket named `proofs`, set `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`. For an existing project, also run `supabase/migrations/20261102_add_task_reference_image.sql` to add the task listing-image column.
 2. **PayPal sandbox:** create a REST app and set `PAYPAL_CLIENT_ID` and `PAYPAL_CLIENT_SECRET`. Operators grant a one-time budget consent via PayPal Vault v3 (`/v3/vault/setup-tokens`). Once authorized, autonomous agents place escrow authorization holds headlessly (0 human clicks) via Merchant-Initiated Transactions (MIT) within the operator's weekly and per-task budget caps. Earner payouts use the Payouts API; if disabled in sandbox, capture still succeeds and payouts log as `PAYOUT_PENDING`.
 3. **AI:** set `AI_GATEWAY_API_KEY` (Vercel AI Gateway). Any vision-capable model id works via `AI_MODEL`.
 4. **Email:** set `RESEND_API_KEY`.

@@ -96,6 +96,24 @@ export default async function TaskPage({ params }: { params: Promise<{ id: strin
             </p>
           </div>
 
+          {task.reference_image_url && (
+            <div className="mt-5">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-neutral-500 mb-1.5">
+                Listing Reference Image
+              </h2>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={task.reference_image_url}
+                alt={`Listing reference for ${task.title}`}
+                referrerPolicy="no-referrer"
+                className="max-h-72 w-full rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900 object-contain"
+              />
+              <p className="mt-1 text-[10px] text-neutral-500">
+                Submit a fresh photo of the real-world item, not a copy of this listing image.
+              </p>
+            </div>
+          )}
+
           <div className="mt-8 border-t border-neutral-200 dark:border-neutral-800 pt-6">
             <ClaimProof
               taskId={task.id}

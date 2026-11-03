@@ -16,6 +16,7 @@ create table tasks (
   agent_id uuid not null references profiles(id),
   title text not null,
   description text not null default '',
+  reference_image_url text,
   task_type text not null default 'verification'
     check (task_type in ('verification','bot_gate','phone_call','taste_call','local_presence','spend_approval')),
   price_cents integer not null check (price_cents > 0),

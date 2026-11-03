@@ -92,6 +92,7 @@ export default async function ShopPage() {
                     type: 'verification',
                     price: '300',
                     proof: 'photo',
+                    reference_image_url: p.images[0]?.url || '',
                   })}`}
                   className="inline-flex items-center gap-1.5 rounded-full bg-neutral-900 dark:bg-[#f4a261] px-5 py-2 text-xs sm:text-sm font-semibold text-white dark:text-[#171412] hover:opacity-90 transition-opacity shadow-xs"
                 >

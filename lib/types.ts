@@ -33,6 +33,7 @@ export interface Task {
   agent_id: string
   title: string
   description: string
+  reference_image_url?: string | null
   task_type: TaskType
   price_cents: number
   status: TaskStatus
