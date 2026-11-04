@@ -74,7 +74,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  let agent: any; try { agent = await getDemoProfile('agent') } catch (e: any) { return NextResponse.json({ error: 'DEBUG getDemoProfile failed', detail: e?.message || String(e) }, { status: 500 }) }
+  const agent = await getDemoProfile('agent')
   const fee = feeFor(input.price_cents)
   const total = input.price_cents + fee
 
@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
     mandate.spent_this_week_cents + total <= mandate.weekly_cap_cents
 
   const baseStartMs = isScheduled && executeAtIso ? Date.parse(executeAtIso) : Date.now()
-  let task: any; try { task = await createTask({
+  const task = await createTask({
     agent_id: agent.id,
     title: input.title,
     description: input.description,
@@ -98,7 +98,7 @@ export async function POST(req: NextRequest) {
     execute_at: executeAtIso,
     deadline_minutes: input.deadline_minutes,
     status: 'pending_funding',
-  }) } catch (e: any) { return NextResponse.json({ error: 'DEBUG createTask failed', detail: e?.message || String(e) }, { status: 500 }) }
+  })
 
   try {
     const origin = req.nextUrl.origin
