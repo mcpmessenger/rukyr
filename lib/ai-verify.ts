@@ -8,7 +8,7 @@ const schema = z.object({
   reasoning: z.string(),
 })
 
-export const aiLive = Boolean(process.env.AI_GATEWAY_API_KEY || process.env.VERCEL_OIDC_TOKEN)
+export const aiLive = Boolean(process.env.AI_GATEWAY_API_KEY || process.env.VERCEL_OIDC_TOKEN || process.env.OPENAI_API_KEY)
 export const AI_MODEL = process.env.AI_MODEL ?? 'openai/gpt-4o-mini'
 
 export type Verdict = Pick<Proof, 'ai_verdict' | 'ai_confidence' | 'ai_reasoning'>
