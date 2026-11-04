@@ -65,9 +65,9 @@ export async function verifyProof(
       messages: [{ role: 'user', content }],
     })
     return { ai_verdict: object.verdict, ai_confidence: object.confidence, ai_reasoning: object.reasoning }
-  } catch (e) {
+  } catch (e: any) {
     console.error('[ai] verification failed', e)
-    return { ai_verdict: 'unsure', ai_confidence: 0, ai_reasoning: 'AI verification unavailable; please review manually.' }
+    return { ai_verdict: 'unsure', ai_confidence: 0, ai_reasoning: 'AI verification unavailable; please review manually. DEBUG: ' + (e?.message || String(e)).slice(0, 300) }
   }
 }
 
