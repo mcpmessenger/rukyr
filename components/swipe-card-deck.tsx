@@ -22,19 +22,19 @@ import {
 } from 'lucide-react'
 import { V1Task, V1Assignment, formatMinorUsd } from '@/lib/v1-types'
 
-interface DatingCardDeckProps {
+interface SwipeCardDeckProps {
   tasks: V1Task[]
   onClaimTask: (task: V1Task) => Promise<boolean>
   onOpenDetails: (task: V1Task) => void
   activeClaims: V1Assignment[]
 }
 
-export function DatingCardDeck({
+export function SwipeCardDeck({
   tasks,
   onClaimTask,
   onOpenDetails,
   activeClaims,
-}: DatingCardDeckProps) {
+}: SwipeCardDeckProps) {
   const [deck, setDeck] = useState<V1Task[]>(tasks)
   const [history, setHistory] = useState<V1Task[]>([])
   const [savedTasks, setSavedTasks] = useState<string[]>([])
@@ -361,7 +361,7 @@ export function DatingCardDeck({
         )}
       </div>
 
-      {/* Dating App Floating Action Controls */}
+      {/* Swipe Mode Floating Action Controls */}
       <div className="mt-4 flex w-full items-center justify-center gap-3 sm:gap-4">
         {/* Rewind Button */}
         <button

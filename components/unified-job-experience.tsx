@@ -14,7 +14,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { V1Task, V1Assignment, formatMinorUsd } from '@/lib/v1-types'
-import { DatingCardDeck } from './dating-card-deck'
+import { SwipeCardDeck } from './swipe-card-deck'
 import { ScrollableJobBoard } from './scrollable-job-board'
 import { TaskDetailModal } from './task-detail-modal'
 import { ApiSandbox } from './api-sandbox'
@@ -26,7 +26,7 @@ interface UnifiedJobExperienceProps {
 export function UnifiedJobExperience({ initialTasks }: UnifiedJobExperienceProps) {
   const [tasks, setTasks] = useState<V1Task[]>(initialTasks)
   const [activeTab, setActiveTab] = useState<'browse' | 'my_claims' | 'api_sandbox'>('browse')
-  const [viewMode, setViewMode] = useState<'auto' | 'dating_deck' | 'job_board'>('auto')
+  const [viewMode, setViewMode] = useState<'auto' | 'swipe_mode' | 'job_board'>('auto')
   const [isMobile, setIsMobile] = useState(false)
   const [selectedTask, setSelectedTask] = useState<V1Task | null>(null)
   const [activeClaims, setActiveClaims] = useState<V1Assignment[]>([])
@@ -42,9 +42,9 @@ export function UnifiedJobExperience({ initialTasks }: UnifiedJobExperienceProps
     return () => window.removeEventListener('resize', checkMobile)
   }, [])
 
-  // Auto-select mode: on mobile, Dating Deck; on desktop, Scrollable Job Board
+  // Auto-select mode: on mobile, Swipe Mode; on desktop, Scrollable Job Board
   const effectiveMode =
-    viewMode === 'auto' ? (isMobile ? 'dating_deck' : 'job_board') : viewMode
+    viewMode === 'auto' ? (isMobile ? 'swipe_mode' : 'job_board') : viewMode
 
   // Fetch latest tasks from v0.1 API
   const refreshTasks = async () => {
@@ -59,7 +59,7 @@ export function UnifiedJobExperience({ initialTasks }: UnifiedJobExperienceProps
     }
   }
 
-  // Claim a task handler (used by both dating deck right swipe and job board claim button)
+  // Claim a task handler (used by both swipe mode right swipe and job board claim button)
   const handleClaimTask = async (task: V1Task): Promise<boolean> => {
     const assignment = task.assignments?.[0]
     if (!assignment) return false
@@ -132,7 +132,7 @@ export function UnifiedJobExperience({ initialTasks }: UnifiedJobExperienceProps
           </button>
         </div>
 
-        {/* View Mode Toggle: Dating App Swipe Deck vs Scrollable Job Board */}
+        {/* View Mode Toggle: Swipe Mode vs Scrollable Job Board */}
         {activeTab === 'browse' && (
           <div className="flex items-center gap-2">
             <span className="text-[11px] font-medium text-neutral-500 hidden sm:inline">View Mode:</span>
@@ -151,16 +151,16 @@ export function UnifiedJobExperience({ initialTasks }: UnifiedJobExperienceProps
               </button>
 
               <button
-                onClick={() => setViewMode('dating_deck')}
+                onClick={() => setViewMode('swipe_mode')}
                 className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 font-semibold transition-all ${
-                  effectiveMode === 'dating_deck'
+                  effectiveMode === 'swipe_mode'
                     ? 'bg-[#cf6a42] text-white shadow-xs'
                     : 'text-neutral-500 hover:text-neutral-900 dark:hover:text-white'
                 }`}
-                title="Dating App Swipe Deck (Left/Right)"
+                title="Swipe Mode (Left/Right)"
               >
                 <Flame className="size-3.5" />
-                <span>Dating Deck 🔥</span>
+                <span>Swipe Mode 🔥</span>
               </button>
             </div>
           </div>
@@ -178,11 +178,11 @@ export function UnifiedJobExperience({ initialTasks }: UnifiedJobExperienceProps
       {/* Main Content Area */}
       {activeTab === 'browse' && (
         <div>
-          {effectiveMode === 'dating_deck' ? (
+          {effectiveMode === 'swipe_mode' ? (
             <div className="flex flex-col items-center">
               <div className="mb-2 text-center">
                 <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/10 px-3 py-1 font-mono text-[11px] font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400">
-                  <Flame className="size-3" /> Dating App Swipe Mode
+                  <Flame className="size-3" /> Swipe Mode
                 </span>
                 <p className="mt-1 text-xs text-neutral-500">
                   Swipe <strong className="text-emerald-500">RIGHT</strong> to Claim &bull; Swipe{' '}
@@ -190,7 +190,7 @@ export function UnifiedJobExperience({ initialTasks }: UnifiedJobExperienceProps
                 </p>
               </div>
 
-              <DatingCardDeck
+              <SwipeCardDeck
                 tasks={tasks}
                 onClaimTask={handleClaimTask}
                 onOpenDetails={handleOpenDetails}
@@ -225,7 +225,7 @@ export function UnifiedJobExperience({ initialTasks }: UnifiedJobExperienceProps
               <Sparkles className="mx-auto size-8 text-neutral-400 mb-2" />
               <p className="text-sm font-semibold">You have no active claims.</p>
               <p className="text-xs text-neutral-400 mt-1">
-                Swipe right on any card in the Dating Deck or click &ldquo;Claim&rdquo; on the Job Board.
+                Swipe right on any card in Swipe Mode or click &ldquo;Claim&rdquo; on the Job Board.
               </p>
               <button
                 onClick={() => setActiveTab('browse')}

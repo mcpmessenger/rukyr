@@ -67,7 +67,7 @@ export default async function Page() {
         </div>
       </section>
 
-      {/* Main Interactive Work Board & Dating App Deck */}
+      {/* Main Interactive Work Board & Swipe Mode Deck */}
       <section id="work-board" className="py-6 sm:py-10">
         <UnifiedJobExperience initialTasks={tasks} />
       </section>
@@ -118,7 +118,7 @@ export default async function Page() {
               {
                 step: '06',
                 title: 'Mobile Swipe Experience',
-                desc: 'On mobile, gigs turn into a tactile left/right dating app card deck so earners can browse and claim work in seconds.',
+                desc: 'On mobile, gigs turn into a tactile left/right swipe card deck so earners can browse and claim work in seconds.',
               },
             ].map((card, i) => (
               <div

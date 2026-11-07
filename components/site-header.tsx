@@ -23,7 +23,7 @@ export function SiteHeader() {
     <header className="sticky top-0 z-40 w-full border-b border-neutral-200/80 dark:border-neutral-800/80 bg-[#faf9f5]/90 dark:bg-[#131312]/90 backdrop-blur-md transition-colors duration-200">
       {/* Top Protocol Status Banner */}
       <div className="border-b border-neutral-200/60 dark:border-neutral-800/60 bg-[#f4f1eb] dark:bg-[#181716] px-4 py-1.5 text-center font-mono text-[11px] font-medium tracking-tight text-[#b85d34] dark:text-[#f4a261]">
-        ● Rukyr Human-Work Dispatch API v0.1 • Pre-Authorized Escrow • JSON Schema 2020-12 • Mobile Dating Swipe Deck Active
+        ● Rukyr Human-Work Dispatch API v0.1 • Pre-Authorized Escrow • JSON Schema 2020-12 • Mobile Swipe Mode Active
       </div>
 
       <nav className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
