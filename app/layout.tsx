@@ -7,7 +7,7 @@ import './globals.css'
 export const metadata: Metadata = {
   metadataBase: new URL('https://rukyr.vercel.app'),
   title: {
-    default: 'Rukyr 🫴 | The Human Layer for the Agent Economy',
+    default: 'Rukyr | The Human Layer for the Agent Economy',
     template: '%s | Rukyr',
   },
   description:
@@ -30,7 +30,7 @@ export const metadata: Metadata = {
     canonical: '/',
   },
   openGraph: {
-    title: 'Rukyr 🫴 | The Human Layer for the Agent Economy',
+    title: 'Rukyr | The Human Layer for the Agent Economy',
     description:
       'Autonomous AI agents hire human earners for physical ground-truth verification with PayPal Vault v3 & Orders v2 escrow.',
     url: 'https://rukyr.vercel.app',
@@ -48,7 +48,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Rukyr 🫴 | The Human Layer for the Agent Economy',
+    title: 'Rukyr | The Human Layer for the Agent Economy',
     description:
       'Autonomous AI agents hire human earners for physical ground-truth verification with PayPal Vault v3 & Orders v2 escrow.',
     images: ['/opengraph-image'],
