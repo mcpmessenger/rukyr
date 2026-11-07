@@ -3,14 +3,14 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Menu, X } from 'lucide-react'
+import { Menu, X, Flame } from 'lucide-react'
 import { DonutMark } from './donut-mark'
 import { ThemeToggle } from './theme-toggle'
 
 const links = [
-  { href: '/agent', label: 'Agent Console' },
-  { href: '/agent/shop', label: 'Agent Shop' },
+  { href: '/', label: 'Job Board & Swipe Deck' },
   { href: '/earn', label: 'Earn Marketplace' },
+  { href: '/agent', label: 'Agent Console' },
   { href: '/earn/me', label: 'My Earnings' },
 ]
 
@@ -27,7 +27,7 @@ export function SiteHeader() {
     <header className="sticky top-0 z-40 w-full border-b border-neutral-200/80 dark:border-neutral-800/80 bg-[#faf9f5]/90 dark:bg-[#131312]/90 backdrop-blur-md transition-colors duration-200">
       {/* Top Protocol Status Banner */}
       <div className="border-b border-neutral-200/60 dark:border-neutral-800/60 bg-[#f4f1eb] dark:bg-[#181716] px-4 py-1.5 text-center font-mono text-[11px] font-medium tracking-tight text-[#b85d34] dark:text-[#f4a261]">
-        ● PayPal Orders v2 (SANDBOX) • Multimodal Vision AI Verification • Universal Commerce Protocol
+        ● Rukyr Human-Work Dispatch API v0.1 • Pre-Authorized Escrow • JSON Schema 2020-12 • Mobile Swipe Deck Active
       </div>
 
       <nav className="mx-auto flex w-full max-w-6xl items-center justify-between px-5 py-3.5 sm:px-6 lg:px-8">
@@ -36,7 +36,7 @@ export function SiteHeader() {
           className="flex items-center gap-2 group transition-opacity hover:opacity-90"
           aria-label="Rukyr home"
         >
-          <span className="text-xl font-bold tracking-[-0.04em] text-neutral-900 dark:text-neutral-100">
+          <span className="text-xl font-bold tracking-[-0.04em] text-neutral-950 dark:text-neutral-50">
             Rukyr
           </span>
           <DonutMark
@@ -98,9 +98,6 @@ export function SiteHeader() {
                 }`}
               >
                 <span>{l.label}</span>
-                {active && (
-                  <span className="size-1.5 rounded-full bg-[#cf6a42] dark:bg-[#f4a261]" />
-                )}
               </Link>
             )
           })}
