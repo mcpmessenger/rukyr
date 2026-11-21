@@ -20,7 +20,7 @@ const body = z.object({
   description: z.string().max(1000).default(''),
   reference_image_url: z.union([z.string().trim().url().max(2048), z.literal(''), z.null()]).optional(),
   task_type: z.enum(['verification', 'bot_gate', 'phone_call', 'taste_call', 'local_presence', 'spend_approval']),
-  price_cents: z.number().int().min(50).max(1000),
+  price_cents: z.number().int().min(50).max(20000),
   proof_requirements: z.enum(['photo', 'text', 'code']).default('photo'),
   deadline_minutes: z.number().int().min(10).max(60 * 24 * 7).default(240),
   execute_at: z.string().nullable().optional(),
