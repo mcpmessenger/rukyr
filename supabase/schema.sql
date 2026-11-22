@@ -40,7 +40,7 @@ create table proofs (
   human_id uuid not null references profiles(id),
   proof_text text not null default '',
   proof_image_url text,
-  ai_verdict text check (ai_verdict in ('pass','fail','unsure')),
+  ai_verdict text check (ai_verdict in ('pass','fail','unsure','error')),
   ai_confidence numeric,
   ai_reasoning text,
   submitted_at timestamptz not null default now()

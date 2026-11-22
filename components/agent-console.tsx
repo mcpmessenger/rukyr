@@ -1347,6 +1347,8 @@ function TaskDetail({
                     ? 'bg-emerald-50 dark:bg-[#1d2b22] text-emerald-900 dark:text-[#8bd3a8] border border-emerald-200 dark:border-emerald-800/60'
                     : v === 'fail'
                     ? 'bg-red-50 dark:bg-[#331d1d] text-red-900 dark:text-[#f08f8f] border border-red-200 dark:border-red-800/60'
+                    : v === 'error'
+                    ? 'bg-red-100 dark:bg-[#401818] text-red-950 dark:text-[#fca5a5] border border-red-300 dark:border-red-700'
                     : 'bg-amber-50 dark:bg-[#33281c] text-amber-900 dark:text-[#f4a261] border border-amber-200 dark:border-amber-800/60'
                 }`}
               >

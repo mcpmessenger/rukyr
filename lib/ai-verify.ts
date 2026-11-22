@@ -13,10 +13,25 @@ export const AI_MODEL = process.env.AI_MODEL ?? 'openai/gpt-4o-mini'
 
 export type Verdict = Pick<Proof, 'ai_verdict' | 'ai_confidence' | 'ai_reasoning'>
 
+async function toImageDataUrl(url: string): Promise<string> {
+  if (url.startsWith('data:')) return url
+  try {
+    const res = await fetch(url)
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const contentType = res.headers.get('content-type') || 'image/png'
+    const arrayBuffer = await res.arrayBuffer()
+    const base64 = Buffer.from(arrayBuffer).toString('base64')
+    return `data:${contentType};base64,${base64}`
+  } catch (err: any) {
+    // If inline fetch fails, pass the URL for provider resolution
+    return url
+  }
+}
+
 /**
  * AI proof verification. A vision model checks the submitted proof against the
  * task. Output is advisory: the operator still approves (unless auto-release is on).
- * Falls back to a deterministic heuristic when no AI key is configured.
+ * If the model call or configuration fails, records an explicit error state.
  */
 export async function verifyProof(
   task: Task,
@@ -28,17 +43,31 @@ export async function verifyProof(
     return { ai_verdict: 'fail', ai_confidence: 0.95, ai_reasoning: 'A photo was required but none was submitted.' }
   }
   if (referenceImageUrl && !proof.proof_image_url) {
-    return { ai_verdict: 'unsure', ai_confidence: 0, ai_reasoning: 'A listing reference is available, but no worker photo was submitted for comparison.' }
+    return { ai_verdict: 'fail', ai_confidence: 0.95, ai_reasoning: 'A listing reference is available, but no worker photo was submitted for comparison.' }
   }
-  if (!aiLive) return heuristic(task, proof, needsImage)
+  if (!aiLive) {
+    const reason = 'AI verification unconfigured: no OpenAI API key or AI Gateway available.'
+    console.error('[ai] missing model configuration:', reason)
+    return { ai_verdict: 'error', ai_confidence: 0, ai_reasoning: reason }
+  }
+
+  let lastError: any = null
 
   // Prefer direct OpenAI API when OPENAI_API_KEY is set (bypass gateway)
   if (process.env.OPENAI_API_KEY) {
     try {
       return await verifyViaOpenAI(task, proof, referenceImageUrl)
     } catch (e: any) {
-      console.error('[ai] direct openai failed', e?.message || e)
-      // fall through to gateway attempt
+      lastError = e
+      console.error('[ai] direct openai failed:', e?.message || e)
+      // Only fall through to gateway if gateway or oidc token is configured
+      if (!process.env.AI_GATEWAY_API_KEY && !process.env.VERCEL_OIDC_TOKEN) {
+        return {
+          ai_verdict: 'error',
+          ai_confidence: 0,
+          ai_reasoning: `AI verification failed (OpenAI): ${e?.message || e}`,
+        }
+      }
     }
   }
 
@@ -63,11 +92,11 @@ export async function verifyProof(
     ]
     if (referenceImageUrl) {
       content.push({ type: 'text', text: 'LISTING REFERENCE IMAGE:' })
-      content.push({ type: 'image', image: referenceImageUrl })
+      content.push({ type: 'image', image: await toImageDataUrl(referenceImageUrl) })
     }
     if (proof.proof_image_url) {
       content.push({ type: 'text', text: 'WORKER-SUBMITTED PHOTO:' })
-      content.push({ type: 'image', image: proof.proof_image_url })
+      content.push({ type: 'image', image: await toImageDataUrl(proof.proof_image_url) })
     }
     const { object } = await generateObject({
       model: AI_MODEL,
@@ -76,8 +105,13 @@ export async function verifyProof(
     })
     return { ai_verdict: object.verdict, ai_confidence: object.confidence, ai_reasoning: object.reasoning }
   } catch (e: any) {
-    console.error('[ai] verification failed', e)
-    return { ai_verdict: 'unsure', ai_confidence: 0, ai_reasoning: 'AI verification unavailable; please review manually.' }
+    const errMsg = e?.message || e || lastError?.message || String(lastError)
+    console.error('[ai] verification failed:', errMsg)
+    return {
+      ai_verdict: 'error',
+      ai_confidence: 0,
+      ai_reasoning: `AI verification failed: ${errMsg}`,
+    }
   }
 }
 
@@ -96,11 +130,11 @@ async function verifyViaOpenAI(
   const userContent: any[] = [{ type: 'text', text: prompt }]
   if (referenceImageUrl) {
     userContent.push({ type: 'text', text: 'LISTING REFERENCE IMAGE:' })
-    userContent.push({ type: 'image_url', image_url: { url: referenceImageUrl } })
+    userContent.push({ type: 'image_url', image_url: { url: await toImageDataUrl(referenceImageUrl) } })
   }
   if (proof.proof_image_url) {
     userContent.push({ type: 'text', text: 'WORKER-SUBMITTED PHOTO:' })
-    userContent.push({ type: 'image_url', image_url: { url: proof.proof_image_url } })
+    userContent.push({ type: 'image_url', image_url: { url: await toImageDataUrl(proof.proof_image_url) } })
   }
 
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -121,18 +155,4 @@ async function verifyViaOpenAI(
   const parsed = JSON.parse(data.choices[0].message.content)
   const v = schema.parse(parsed)
   return { ai_verdict: v.verdict, ai_confidence: v.confidence, ai_reasoning: v.reasoning }
-}
-
-function heuristic(task: Task, proof: { proof_text: string; proof_image_url: string | null }, needsImage: boolean): Verdict {
-  const note = '(mock verifier: set AI_GATEWAY_API_KEY for real vision checks) '
-  if (needsImage || task.reference_image_url) {
-    const comparison = task.reference_image_url
-      ? 'Listing reference and worker photo are available, but the mock verifier cannot compare them.'
-      : 'Photo received, but no listing reference is available for image comparison.'
-    return { ai_verdict: 'unsure', ai_confidence: 0, ai_reasoning: note + comparison + ' A person should review the evidence.' }
-  }
-  if (proof.proof_text.trim().length >= 20) {
-    return { ai_verdict: 'pass', ai_confidence: 0.7, ai_reasoning: note + 'Text proof is present and detailed.' }
-  }
-  return { ai_verdict: 'fail', ai_confidence: 0.8, ai_reasoning: note + 'Text proof is too short to be credible.' }
 }

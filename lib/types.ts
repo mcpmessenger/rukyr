@@ -53,7 +53,7 @@ export interface Proof {
   human_id: string
   proof_text: string
   proof_image_url: string | null
-  ai_verdict: 'pass' | 'fail' | 'unsure' | null
+  ai_verdict: 'pass' | 'fail' | 'unsure' | 'error' | null
   ai_confidence: number | null
   ai_reasoning: string | null
   submitted_at: string

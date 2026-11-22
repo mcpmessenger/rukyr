@@ -477,7 +477,15 @@ export async function addProof(
     mem().proofs.push(p)
     return p
   }
-  return must(await sb().from('proofs').insert(input).select().single()) as Proof
+  try {
+    return must(await sb().from('proofs').insert(input).select().single()) as Proof
+  } catch (err: any) {
+    if (input.ai_verdict === 'error' && (err?.message?.includes('proofs_ai_verdict_check') || err?.code === '23514')) {
+      const row = must(await sb().from('proofs').insert({ ...input, ai_verdict: null }).select().single()) as Proof
+      return { ...row, ai_verdict: 'error' }
+    }
+    throw err
+  }
 }
 
 export async function getLatestProof(taskId: string): Promise<Proof | null> {
