@@ -93,6 +93,16 @@ async function verifyViaOpenAI(
     `Return pass only when the evidence supports the requested check; fail only for a clear contradiction; use unsure otherwise. ` +
     `Respond with JSON: {"verdict": "pass"|"fail"|"unsure", "confidence": 0.0-1.0, "reasoning": "..."}`
 
+  const userContent: any[] = [{ type: 'text', text: prompt }]
+  if (referenceImageUrl) {
+    userContent.push({ type: 'text', text: 'LISTING REFERENCE IMAGE:' })
+    userContent.push({ type: 'image_url', image_url: { url: referenceImageUrl } })
+  }
+  if (proof.proof_image_url) {
+    userContent.push({ type: 'text', text: 'WORKER-SUBMITTED PHOTO:' })
+    userContent.push({ type: 'image_url', image_url: { url: proof.proof_image_url } })
+  }
+
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -101,7 +111,7 @@ async function verifyViaOpenAI(
     },
     body: JSON.stringify({
       model: 'gpt-4o-mini',
-      messages: [{ role: 'user', content: prompt }],
+      messages: [{ role: 'user', content: userContent }],
       response_format: { type: 'json_object' },
       max_tokens: 500,
     }),

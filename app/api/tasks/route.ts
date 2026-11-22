@@ -166,6 +166,7 @@ export async function POST(req: NextRequest) {
         task: updated,
         approveUrl: null,
         headless: true,
+        paypal_authorization_id: authId,
         mandate: {
           remaining_cents: Math.max(0, mandate.weekly_cap_cents - mandate.spent_this_week_cents - total),
         },
